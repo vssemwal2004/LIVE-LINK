@@ -4,7 +4,6 @@ const cors = require('cors');
 const bodyParser = require('body-parser');
 const mongoose = require('mongoose');
 const authRoutes = require('./routes/Authroutes');
-const recordRoutes = require('./routes/RecordsRoutes');
 const jwt = require('jsonwebtoken');
 const { User } = require('./controller/authcontroller');
 
@@ -19,7 +18,6 @@ mongoose
 	.catch((e) => console.error('Mongo connection error', e));
 
 app.use('/api/auth', authRoutes);
-app.use('/api/records', recordRoutes);
 
 // simple /me endpoint to validate token
 app.get('/api/auth/me', async (req, res) => {
@@ -37,9 +35,7 @@ app.get('/api/auth/me', async (req, res) => {
 		}
 		const user = await q;
 		if (!user) return res.status(401).json({ message: 'Invalid token' });
-		// Explicitly include cardNumber (non-sensitive) for patients
-		const safeUser = user.toObject();
-		return res.json({ user: safeUser });
+		return res.json({ user });
 	} catch (e) {
 		return res.status(401).json({ message: 'Invalid token' });
 	}
