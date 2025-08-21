@@ -6,6 +6,7 @@ import Login from '../auth/login.jsx'
 import Register from '../auth/register.jsx'
 import Patient from './pages/Patient'
 import Doctor from './pages/Doctor'
+import PatientSearch from './pages/PatientSearch'
 
 function App() {
   return (
@@ -16,6 +17,7 @@ function App() {
           <Route path="/register" element={<Register />} />
           <Route path="/patient" element={<Patient />} />
           <Route path="/doctor" element={<Doctor />} />
+          <Route path="/doctor/patient-search" element={<PatientSearch />} />
           <Route path="/" element={<Navigate to="/login" replace />} />
         </Routes>
       </div>

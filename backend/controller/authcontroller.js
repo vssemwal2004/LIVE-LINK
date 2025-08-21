@@ -2,6 +2,13 @@ const mongoose = require('mongoose');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
+let supabase = null;
+try {
+  const { createClient } = require('@supabase/supabase-js');
+  if (process.env.SUPABASE_URL && process.env.SUPABASE_KEY) {
+    supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
+  }
+} catch (_) {}
 
 const userSchema = new mongoose.Schema({
   name: String,
@@ -112,6 +119,15 @@ exports.findDoctorByMedicalId = async (req, res) => {
   return res.json({ doctor: { id: doc._id, name: doc.name, email: doc.email, medicalId: doc.medicalId } });
 };
 
+// Find patient by card number (for doctor search)
+exports.findPatientByCard = async (req, res) => {
+  const { cardNumber } = req.params;
+  if (!cardNumber) return res.status(400).json({ message: 'cardNumber is required' });
+  const pat = await User.findOne({ role: 'patient', cardNumber }).select('name email cardNumber');
+  if (!pat) return res.status(404).json({ message: 'Patient not found' });
+  return res.json({ patient: { id: pat._id, name: pat.name, email: pat.email, cardNumber: pat.cardNumber } });
+};
+
 // Patient adds a primary doctor by medicalId (only one allowed)
 exports.addPrimaryDoctor = async (req, res) => {
   const { medicalId } = req.body || {};
@@ -193,6 +209,24 @@ const patientRecordSchema = new mongoose.Schema(
           tag: String,
           data: String,
         },
+        // or Supabase path
+        path: String,
+      },
+    ],
+    sections: [
+      {
+        label: String,
+        enc: { iv: String, tag: String, data: String },
+        files: [
+          {
+            name: String,
+            mime: String,
+            enc: { iv: String, tag: String, data: String },
+            path: String,
+          },
+        ],
+        createdAt: { type: Date, default: Date.now },
+        updatedAt: { type: Date, default: Date.now },
       },
     ],
   },
@@ -250,17 +284,174 @@ exports.createPatientRecord = async (req, res) => {
 
     const enc = encryptJson(payload);
 
-    // Encrypt files (if any)
-    const files = (req.files || []).map((f) => {
-      const encFile = encryptJson({ name: f.originalname, mime: f.mimetype, data: f.buffer.toString('base64') });
-      return { name: f.originalname, mime: f.mimetype, enc: encFile };
-    });
+    // Handle files (upload to Supabase if available, else encrypt into DB)
+    const files = [];
+  for (const f of req.files || []) {
+      if (supabase) {
+        const bucket = process.env.SUPABASE_BUCKET || 'patient-records';
+        const path = `${patient._id}/${Date.now()}-${Math.random().toString(36).slice(2)}-${f.originalname}`;
+        const { error } = await supabase.storage.from(bucket).upload(path, f.buffer, { contentType: f.mimetype, upsert: false });
+        if (error) {
+          console.error('Supabase upload error', error);
+          return res.status(500).json({ message: 'File upload failed' });
+        }
+    files.push({ name: f.originalname, mime: f.mimetype, path });
+      } else {
+        const encFile = encryptJson({ name: f.originalname, mime: f.mimetype, data: f.buffer.toString('base64') });
+        files.push({ name: f.originalname, mime: f.mimetype, enc: encFile });
+      }
+    }
 
-    const rec = new PatientRecord({ patient: patient._id, createdBy: doctor._id, accessTier, enc, files });
+  const rec = new PatientRecord({ patient: patient._id, createdBy: doctor._id, accessTier, enc, files });
     await rec.save();
     return res.json({ message: 'Record added', recordId: rec._id });
   } catch (e) {
     console.error('createPatientRecord error', e);
+    return res.status(500).json({ message: 'Server error' });
+  }
+};
+
+// Primary doctor can upsert a single record per (patient, tier)
+exports.upsertPrimaryRecord = async (req, res) => {
+  try {
+    const doctor = await User.findById(req.userId);
+    if (!doctor || doctor.role !== 'doctor') return res.status(403).json({ message: 'Only doctors can edit records' });
+    const { patientId, tier } = req.params;
+    if (!['early', 'emergency', 'critical'].includes(tier)) return res.status(400).json({ message: 'Invalid tier' });
+    const patient = await User.findById(patientId);
+    if (!patient || patient.role !== 'patient') return res.status(404).json({ message: 'Patient not found' });
+    const isPrimary = await User.exists({ _id: patient._id, primaryDoctors: doctor._id });
+    if (!isPrimary) return res.status(403).json({ message: 'Only primary doctor can edit' });
+
+    const payload = req.body?.data ? JSON.parse(req.body.data) : req.body;
+    const enc = encryptJson(payload || {});
+
+    // files
+    const files = [];
+    for (const f of req.files || []) {
+      if (supabase) {
+        const bucket = process.env.SUPABASE_BUCKET || 'patient-records';
+        const path = `${patient._id}/${tier}/${Date.now()}-${Math.random().toString(36).slice(2)}-${f.originalname}`;
+        const { error } = await supabase.storage.from(bucket).upload(path, f.buffer, { contentType: f.mimetype, upsert: false });
+        if (error) return res.status(500).json({ message: 'File upload failed' });
+        files.push({ name: f.originalname, mime: f.mimetype, path });
+      } else {
+        const encFile = encryptJson({ name: f.originalname, mime: f.mimetype, data: f.buffer.toString('base64') });
+        files.push({ name: f.originalname, mime: f.mimetype, enc: encFile });
+      }
+    }
+
+    const existing = await PatientRecord.findOne({ patient: patient._id, createdBy: doctor._id, accessTier: tier });
+    if (existing) {
+      existing.enc = enc;
+      if (files.length) existing.files = files; // overwrite files if provided
+      await existing.save();
+      return res.json({ message: 'Record updated', recordId: existing._id });
+    } else {
+      const rec = new PatientRecord({ patient: patient._id, createdBy: doctor._id, accessTier: tier, enc, files });
+      await rec.save();
+      return res.json({ message: 'Record created', recordId: rec._id });
+    }
+  } catch (e) {
+    console.error('upsertPrimaryRecord error', e);
+    return res.status(500).json({ message: 'Server error' });
+  }
+};
+
+// Append a new section (box) to an existing primary record
+exports.addRecordSection = async (req, res) => {
+  try {
+    const doctor = await User.findById(req.userId);
+    if (!doctor || doctor.role !== 'doctor') return res.status(403).json({ message: 'Only doctors can edit records' });
+    const { patientId, tier } = req.params;
+    const { label } = req.body || {};
+    if (!label) return res.status(400).json({ message: 'label is required' });
+    if (!['early', 'emergency', 'critical'].includes(tier)) return res.status(400).json({ message: 'Invalid tier' });
+    const patient = await User.findById(patientId);
+    if (!patient || patient.role !== 'patient') return res.status(404).json({ message: 'Patient not found' });
+    const isPrimary = await User.exists({ _id: patient._id, primaryDoctors: doctor._id });
+    if (!isPrimary) return res.status(403).json({ message: 'Only primary doctor can edit' });
+
+    const payload = req.body?.data ? JSON.parse(req.body.data) : req.body;
+    const enc = encryptJson(payload || {});
+
+    const files = [];
+    for (const f of req.files || []) {
+      if (supabase) {
+        const bucket = process.env.SUPABASE_BUCKET || 'patient-records';
+        const path = `${patient._id}/${tier}/sections/${Date.now()}-${Math.random().toString(36).slice(2)}-${f.originalname}`;
+        const { error } = await supabase.storage.from(bucket).upload(path, f.buffer, { contentType: f.mimetype, upsert: false });
+        if (error) return res.status(500).json({ message: 'File upload failed' });
+        files.push({ name: f.originalname, mime: f.mimetype, path });
+      } else {
+        const encFile = encryptJson({ name: f.originalname, mime: f.mimetype, data: f.buffer.toString('base64') });
+        files.push({ name: f.originalname, mime: f.mimetype, enc: encFile });
+      }
+    }
+
+    const rec = await PatientRecord.findOne({ patient: patient._id, createdBy: doctor._id, accessTier: tier });
+    if (!rec) return res.status(404).json({ message: 'Record not found' });
+    rec.sections.push({ label, enc, files, updatedAt: new Date() });
+    await rec.save();
+    return res.json({ message: 'Section added', recordId: rec._id, sections: rec.sections.map((s)=>({ label: s.label, createdAt: s.createdAt })) });
+  } catch (e) {
+    console.error('addRecordSection error', e);
+    return res.status(500).json({ message: 'Server error' });
+  }
+};
+
+exports.getPrimaryRecord = async (req, res) => {
+  try {
+    const doctor = await User.findById(req.userId);
+    if (!doctor || doctor.role !== 'doctor') return res.status(403).json({ message: 'Only doctors' });
+    const { patientId, tier } = req.params;
+    if (!['early', 'emergency', 'critical'].includes(tier)) return res.status(400).json({ message: 'Invalid tier' });
+    const patient = await User.findById(patientId);
+    if (!patient || patient.role !== 'patient') return res.status(404).json({ message: 'Patient not found' });
+    const isPrimary = await User.exists({ _id: patient._id, primaryDoctors: doctor._id });
+    if (!isPrimary) return res.status(403).json({ message: 'Only primary doctor' });
+
+    const rec = await PatientRecord.findOne({ patient: patient._id, createdBy: doctor._id, accessTier: tier });
+    if (!rec) return res.json({ record: null });
+
+    const bucket = process.env.SUPABASE_BUCKET || 'patient-records';
+    const usePublic = (process.env.SUPABASE_PUBLIC || 'true').toLowerCase() === 'true';
+    const mapFiles = async (arr = []) => Promise.all(arr.map(async (f) => {
+      if (f.path && supabase) {
+        if (usePublic) {
+          const { data: pub } = supabase.storage.from(bucket).getPublicUrl(f.path);
+          return { name: f.name, mime: f.mime, url: pub?.publicUrl || null };
+        } else {
+          const ttl = parseInt(process.env.SUPABASE_SIGNED_TTL || '600', 10);
+          const { data } = await supabase.storage.from(bucket).createSignedUrl(f.path, ttl);
+          return { name: f.name, mime: f.mime, url: data?.signedUrl || null };
+        }
+      }
+      if (f.enc) {
+        const dec = decryptJson(f.enc);
+        return { name: f.name, mime: f.mime, dataBase64: dec.data };
+      }
+      if (f.url) return { name: f.name, mime: f.mime, url: f.url };
+      return { name: f.name, mime: f.mime };
+    }));
+
+    const result = {
+      id: rec._id,
+      accessTier: rec.accessTier,
+      createdAt: rec.createdAt,
+      data: decryptJson(rec.enc),
+      files: await mapFiles(rec.files),
+      sections: await Promise.all((rec.sections||[]).map(async (s) => ({
+        label: s.label,
+        createdAt: s.createdAt,
+        updatedAt: s.updatedAt,
+        data: decryptJson(s.enc),
+        files: await mapFiles(s.files)
+      })))
+    };
+    return res.json({ record: result });
+  } catch (e) {
+    console.error('getPrimaryRecord error', e);
     return res.status(500).json({ message: 'Server error' });
   }
 };
@@ -273,6 +464,13 @@ const accessRequestSchema = new mongoose.Schema(
     tier: { type: String, enum: ['emergency', 'critical'], required: true },
     status: { type: String, enum: ['pending', 'approved', 'rejected'], default: 'pending' },
     expiresAt: { type: Date },
+    proofs: [
+      {
+        name: String,
+        mime: String,
+        url: String,
+      },
+    ],
   },
   { timestamps: true }
 );
@@ -294,18 +492,33 @@ exports.createAccessRequest = async (req, res) => {
 
     let status = 'pending';
     let expiresAt = undefined;
+    let proofs = [];
     if (tier === 'emergency') {
+      // must have at least 3 files
+      const fs = req.files || [];
+      if (fs.length < 3) return res.status(400).json({ message: 'Upload minimum 3 documents for emergency access' });
+      if (!supabase) return res.status(500).json({ message: 'File storage not configured' });
+      const bucket = process.env.SUPABASE_BUCKET || 'patient-records';
+      for (const f of fs) {
+        const path = `access-proofs/${patient._id}/${Date.now()}-${Math.random().toString(36).slice(2)}-${f.originalname}`;
+        const { error } = await supabase.storage.from(bucket).upload(path, f.buffer, { contentType: f.mimetype, upsert: false });
+        if (error) {
+          console.error('Supabase upload error', error);
+          return res.status(500).json({ message: 'Proof upload failed' });
+        }
+        proofs.push({ name: f.originalname, mime: f.mimetype, path });
+      }
       status = 'approved';
-      expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+      expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
     }
 
-    const ar = new AccessRequest({ patient: patient._id, requesterDoctor: doctor._id, tier, status, expiresAt });
+    const ar = new AccessRequest({ patient: patient._id, requesterDoctor: doctor._id, tier, status, expiresAt, proofs });
     await ar.save();
 
     // TODO: notify primary doctor via email
     console.log(`[notify] Access request ${ar._id} for ${tier} by Dr.${doctor.name} for patient ${patient.name}`);
 
-    return res.json({ message: 'Access request created', request: { id: ar._id, status: ar.status, expiresAt: ar.expiresAt } });
+  return res.json({ message: 'Access request created', request: { id: ar._id, status: ar.status, expiresAt: ar.expiresAt } });
   } catch (e) {
     console.error('createAccessRequest error', e);
     return res.status(500).json({ message: 'Server error' });
@@ -372,16 +585,32 @@ exports.getPatientRecords = async (req, res) => {
     const recs = await PatientRecord.find(q).sort({ createdAt: -1 });
 
     const filtered = recs.filter((r) => allowedTiers.has(r.accessTier));
-    const result = filtered.map((r) => ({
+  const result = await Promise.all(filtered.map(async (r) => ({
       id: r._id,
       accessTier: r.accessTier,
       createdAt: r.createdAt,
       data: decryptJson(r.enc),
-      files: (r.files || []).map((f) => {
-        const dec = decryptJson(f.enc);
-        return { name: f.name, mime: f.mime, dataBase64: dec.data };
-      })
-    }));
+      files: await Promise.all((r.files || []).map(async (f) => {
+        if (f.path && supabase) {
+          const bucket = process.env.SUPABASE_BUCKET || 'patient-records';
+          const usePublic = (process.env.SUPABASE_PUBLIC || 'true').toLowerCase() === 'true';
+          if (usePublic) {
+            const { data: pub } = supabase.storage.from(bucket).getPublicUrl(f.path);
+            return { name: f.name, mime: f.mime, url: pub?.publicUrl || null };
+          } else {
+            const ttl = parseInt(process.env.SUPABASE_SIGNED_TTL || '600', 10);
+            const { data, error } = await supabase.storage.from(bucket).createSignedUrl(f.path, ttl);
+            return { name: f.name, mime: f.mime, url: data?.signedUrl || null };
+          }
+        }
+        if (f.url) return { name: f.name, mime: f.mime, url: f.url };
+        if (f.enc) {
+          const dec = decryptJson(f.enc);
+          return { name: f.name, mime: f.mime, dataBase64: dec.data };
+        }
+        return { name: f.name, mime: f.mime };
+      }))
+    })));
 
     return res.json({ records: result });
   } catch (e) {
