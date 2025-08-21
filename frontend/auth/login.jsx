@@ -1,9 +1,14 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 
-const MedicalLogin = () => {
-  const [userType, setUserType] = useState('patient');
+const Login = () => {
+  const [role, setRole] = useState('patient');
+  const [form, setForm] = useState({ email: '', password: '' });
+  const [toast, setToast] = useState({ type: '', message: '' });
+  const [loading, setLoading] = useState(false);
   const [isAnimating, setIsAnimating] = useState(true);
   const animationRef = useRef(null);
+  const navigate = useNavigate();
 
   // Continuous animation loop
   useEffect(() => {
@@ -25,49 +30,88 @@ const MedicalLogin = () => {
     return () => clearInterval(interval);
   }, [isAnimating]);
 
+  const handleChange = (e) => {
+    const { name, value } = e.target;
+    setForm((p) => ({ ...p, [name]: value }));
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setToast({});
+    setLoading(true);
+    try {
+      const url = `http://localhost:5000/api/auth/login/${role}`;
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(form),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setToast({ type: 'error', message: data.message || 'Login failed' });
+      } else {
+        localStorage.setItem('token', data.token);
+        localStorage.setItem('user', JSON.stringify(data.user));
+        setToast({ type: 'success', message: 'Login successful' });
+        setTimeout(() => {
+          if (role === 'patient') navigate('/patient');
+          else navigate('/doctor');
+        }, 700);
+      }
+    } catch (err) {
+      setToast({ type: 'error', message: 'Server error' });
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div className="min-h-screen flex bg-gradient-to-br from-blue-50 via-indigo-50 to-teal-50 overflow-hidden">
       {/* Left Panel - Login Form */}
-      <div className="w-full md:w-2/5 flex items-center justify-center p-8">
-        <div className="w-full max-w-md bg-white/95 backdrop-blur-xl rounded-3xl shadow-2xl shadow-blue-500/20 p-10 border border-blue-100">
-          <div className="text-center mb-10">
-            <div className="flex justify-center mb-6">
-              <div className="w-16 h-16 bg-gradient-to-r from-blue-600 to-teal-500 rounded-2xl flex items-center justify-center shadow-lg">
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <div className="w-full md:w-2/5 flex items-center justify-center p-4">
+        <div className="w-full max-w-md bg-white/95 backdrop-blur-xl rounded-2xl shadow-xl shadow-blue-500/20 p-6 border border-blue-100">
+          <div className="text-center mb-6">
+            <div className="flex justify-center mb-4">
+              <div className="w-12 h-12 bg-gradient-to-r from-blue-600 to-teal-500 rounded-xl flex items-center justify-center shadow-md">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
                 </svg>
               </div>
             </div>
-            <h1 className="text-4xl font-bold text-blue-900 mb-3">LifeLink Medical</h1>
-            <p className="text-blue-700 text-lg">Secure access to your healthcare portal</p>
+            <h1 className="text-2xl font-bold text-blue-900 mb-2">LifeLink Medical</h1>
+            <p className="text-blue-700 text-sm">Secure access to your healthcare portal</p>
           </div>
 
-          <div className="mb-8 flex bg-blue-100 rounded-xl p-1.5">
+          <div className="mb-4 flex bg-blue-100 rounded-lg p-1">
             <button
-              onClick={() => setUserType('patient')}
-              className={`flex-1 py-4 px-6 rounded-xl transition-all duration-300 ${userType === 'patient' ? 'bg-white shadow-md text-blue-800 font-semibold' : 'text-blue-600'}`}
+              onClick={() => setRole('patient')}
+              className={`flex-1 py-2 px-4 rounded-lg transition-all duration-300 ${role === 'patient' ? 'bg-white shadow-sm text-blue-800 font-semibold' : 'text-blue-600'}`}
             >
               Patient Login
             </button>
             <button
-              onClick={() => setUserType('doctor')}
-              className={`flex-1 py-4 px-6 rounded-xl transition-all duration-300 ${userType === 'doctor' ? 'bg-white shadow-md text-blue-800 font-semibold' : 'text-blue-600'}`}
+              onClick={() => setRole('doctor')}
+              className={`flex-1 py-2 px-4 rounded-lg transition-all duration-300 ${role === 'doctor' ? 'bg-white shadow-sm text-blue-800 font-semibold' : 'text-blue-600'}`}
             >
               Doctor Login
             </button>
           </div>
 
-          <div className="space-y-6">
+          <div className="space-y-4">
             <div>
-              <label className="block text-md font-semibold text-blue-800 mb-2">Email Address</label>
+              <label className="block text-sm font-semibold text-blue-800 mb-1">Email Address</label>
               <div className="relative">
-                <input 
-                  type="email" 
-                  className="w-full px-5 py-4 rounded-xl border-2 border-blue-200 focus:ring-3 focus:ring-blue-500 focus:border-blue-500 transition-all duration-300 text-blue-900" 
+                <input
+                  name="email"
+                  value={form.email}
+                  onChange={handleChange}
+                  type="email"
+                  required
+                  className="w-full px-4 py-3 rounded-lg border-2 border-blue-200 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all duration-300 text-blue-900 text-sm"
                   placeholder="name@example.com"
                 />
-                <div className="absolute right-4 top-4 text-blue-500">
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" viewBox="0 0 20 20" fill="currentColor">
+                <div className="absolute right-3 top-3 text-blue-500">
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
                     <path d="M2.003 5.884L10 9.882l7.997-3.998A2 2 0 0016 4H4a2 2 0 00-1.997 1.884z" />
                     <path d="M18 8.118l-8 4-8-4V14a2 2 0 002 2h12a2 2 0 002-2V8.118z" />
                   </svg>
@@ -76,15 +120,19 @@ const MedicalLogin = () => {
             </div>
 
             <div>
-              <label className="block text-md font-semibold text-blue-800 mb-2">Password</label>
+              <label className="block text-sm font-semibold text-blue-800 mb-1">Password</label>
               <div className="relative">
-                <input 
-                  type="password" 
-                  className="w-full px-5 py-4 rounded-xl border-2 border-blue-200 focus:ring-3 focus:ring-blue-500 focus:border-blue-500 transition-all duration-300 text-blue-900" 
+                <input
+                  name="password"
+                  type="password"
+                  value={form.password}
+                  onChange={handleChange}
+                  required
+                  className="w-full px-4 py-3 rounded-lg border-2 border-blue-200 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all duration-300 text-blue-900 text-sm"
                   placeholder="••••••••"
                 />
-                <div className="absolute right-4 top-4 text-blue-500">
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" viewBox="0 0 20 20" fill="currentColor">
+                <div className="absolute right-3 top-3 text-blue-500">
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
                     <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
                   </svg>
                 </div>
@@ -93,34 +141,42 @@ const MedicalLogin = () => {
 
             <div className="flex items-center justify-between">
               <div className="flex items-center">
-                <input 
-                  type="checkbox" 
+                <input
+                  type="checkbox"
                   id="remember"
-                  className="h-5 w-5 text-blue-600 focus:ring-blue-500 border-blue-300 rounded"
+                  className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-blue-300 rounded"
                 />
-                <label htmlFor="remember" className="ml-3 block text-md text-blue-800">
+                <label htmlFor="remember" className="ml-2 block text-sm text-blue-800">
                   Remember me
                 </label>
               </div>
-              <a href="#" className="text-md font-medium text-blue-600 hover:text-blue-900 transition-colors">
+              <a href="#" className="text-sm font-medium text-blue-600 hover:text-blue-900 transition-colors">
                 Forgot password?
               </a>
             </div>
 
-            <button 
+            {toast.message && (
+              <div className={`p-3 mb-3 rounded-lg ${toast.type === 'error' ? 'bg-red-200 text-red-800' : 'bg-green-200 text-green-800'} text-sm`}>
+                {toast.message}
+              </div>
+            )}
+
+            <button
               type="submit"
-              className="w-full bg-gradient-to-r from-blue-700 to-teal-600 text-white py-4 rounded-xl font-semibold shadow-xl shadow-blue-500/40 hover:shadow-2xl hover:shadow-blue-500/50 transition-all duration-300 transform hover:-translate-y-1"
+              disabled={loading}
+              onClick={handleSubmit}
+              className="w-full bg-gradient-to-r from-blue-700 to-teal-600 text-white py-3 rounded-lg font-semibold shadow-xl shadow-blue-500/40 hover:shadow-2xl hover:shadow-blue-500/50 transition-all duration-300 transform hover:-translate-y-1 text-sm"
             >
-              Sign In
+              {loading ? 'Logging...' : 'Sign In'}
             </button>
           </div>
 
-          <div className="mt-8 text-center">
-            <p className="text-blue-700 text-md">
+          <div className="mt-4 text-center">
+            <p className="text-blue-700 text-sm">
               Don't have an account?{' '}
-              <a href="/register" className="font-semibold text-blue-800 hover:text-blue-950 transition-colors">
+              <button onClick={() => navigate('/register')} className="font-semibold text-blue-800 hover:text-blue-950 transition-colors">
                 Create new account
-              </a>
+              </button>
             </p>
           </div>
         </div>
@@ -252,7 +308,7 @@ const MedicalLogin = () => {
           <div className="absolute -top-10 left-20 w-4 h-4 bg-blue-400/30 rounded-full animate-particle-float"></div>
           <div className="absolute top-40 right-28 w-3 h-3 bg-teal-400/40 rounded-full animate-particle-float animation-delay-1000"></div>
           <div className="absolute bottom-32 left-40 w-5 h-5 bg-blue-500/20 rounded-full animate-particle-float animation-delay-2000"></div>
-          <div className="absolute bottom-20 right-44 w-2 h-2 bg-teal-500/30 rounded-full animate-particle-float animation-delay-1500"></div>
+          <div className="absolute bottom-20 right-44 w-2 h-2 bg-teal-家人/30 rounded-full animate-particle-float animation-delay-1500"></div>
         </div>
       </div>
 
@@ -267,4 +323,4 @@ const MedicalLogin = () => {
   );
 };
 
-export default MedicalLogin;
+export default Login;
