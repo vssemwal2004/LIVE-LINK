@@ -30,7 +30,7 @@ export default function Login() {
         setToast({ type: 'error', message: data.message || 'Login failed' })
       } else {
         localStorage.setItem('token', data.token)
-        localStorage.setItem('user', JSON.stringify(data.user))
+  localStorage.setItem('user', JSON.stringify(data.user))
         setToast({ type: 'success', message: 'Login successful' })
         setTimeout(() => {
           if (role === 'patient') navigate('/patient')
