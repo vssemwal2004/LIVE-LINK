@@ -91,9 +91,6 @@ export default function Patient() {
         <button onClick={logout} className="bg-red-500 text-white px-3 py-1 rounded">Logout</button>
       </div>
       <p>Welcome, {user.name}</p>
-      {user.cardNumber && (
-        <div className="text-sm text-gray-700">Card Number: <span className="font-mono">{user.cardNumber}</span></div>
-      )}
 
       <div className="bg-white rounded border p-4">
         <div className="flex items-center justify-between mb-3">
