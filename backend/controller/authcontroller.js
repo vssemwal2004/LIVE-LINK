@@ -6,6 +6,7 @@ const userSchema = new mongoose.Schema({
   name: String,
   phone: String,
   medicalId: String, // present for doctors
+  cardNumber: String, // present for patients
   email: { type: String, unique: true },
   passwordHash: String,
   role: { type: String, enum: ['patient', 'doctor'] },
@@ -21,6 +22,10 @@ try {
     { role: 1, medicalId: 1 },
     { unique: true, partialFilterExpression: { role: 'doctor', medicalId: { $type: 'string' } } }
   );
+  userSchema.index(
+    { role: 1, cardNumber: 1 },
+    { unique: true, partialFilterExpression: { role: 'patient', cardNumber: { $type: 'string' } } }
+  );
 } catch (_) {
   // ignore redefinition in hot reload
 }
@@ -33,9 +38,22 @@ exports.registerPatient = async (req, res) => {
   const exists = await User.findOne({ email });
   if (exists) return res.status(400).json({ message: 'Email already registered' });
   const hash = await bcrypt.hash(password, 10);
-  const u = new User({ name, phone, email, passwordHash: hash, role: 'patient', primaryDoctors: [] });
+  // generate unique card number for patient
+  let cardNumber;
+  for (let i = 0; i < 7; i++) {
+    const candidate = 'PT' + Math.floor(10_0000_0000 + Math.random() * 89_9999_9999).toString(); // PT + 10-digit number
+    // Ensure uniqueness among patients
+    const taken = await User.exists({ role: 'patient', cardNumber: candidate });
+    if (!taken) {
+      cardNumber = candidate;
+      break;
+    }
+  }
+  if (!cardNumber) return res.status(500).json({ message: 'Could not generate card number' });
+
+  const u = new User({ name, phone, email, passwordHash: hash, role: 'patient', cardNumber, primaryDoctors: [] });
   await u.save();
-  return res.json({ message: 'Patient registered', user: { id: u._id, name: u.name, email: u.email } });
+  return res.json({ message: 'Patient registered', user: { id: u._id, name: u.name, email: u.email, cardNumber: u.cardNumber } });
 };
 
 exports.registerDoctor = async (req, res) => {
@@ -56,7 +74,7 @@ exports.loginPatient = async (req, res) => {
   const ok = await bcrypt.compare(password, u.passwordHash || '');
   if (!ok) return res.status(401).json({ message: 'Invalid credentials' });
   const token = jwt.sign({ id: u._id, role: u.role }, process.env.JWT_SECRET || 'dev_secret', { expiresIn: '7d' });
-  return res.json({ message: 'Login OK', user: { id: u._id, name: u.name, role: u.role }, token });
+  return res.json({ message: 'Login OK', user: { id: u._id, name: u.name, role: u.role, cardNumber: u.cardNumber }, token });
 };
 
 exports.loginDoctor = async (req, res) => {

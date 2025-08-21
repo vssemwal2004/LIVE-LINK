@@ -1,282 +1,270 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { toast } from "sonner";
-import medicalCard from "@/assets/medical-card.jpg";
 
-export default function MedicalLogin() {
-  const [role, setRole] = useState('patient');
-  const [form, setForm] = useState({ email: '', password: '' });
-  const [loading, setLoading] = useState(false);
-  const [showPassword, setShowPassword] = useState(false);
-  const [animationPhase, setAnimationPhase] = useState(0);
-  const [isClicked, setIsClicked] = useState(false);
-  const navigate = useNavigate();
-  const scannerRef = useRef(null);
+const MedicalLogin = () => {
+  const [userType, setUserType] = useState('patient');
+  const [isAnimating, setIsAnimating] = useState(true);
+  const animationRef = useRef(null);
 
-  // Color scheme based on role
-  const color = role === 'patient' ? 'blue' : 'teal';
-
-  // Cycle through animation phases for the scanner
+  // Continuous animation loop
   useEffect(() => {
-    const interval = setInterval(() => {
-      setAnimationPhase((prev) => (prev + 1) % 3);
-    }, 4000);
+    if (!isAnimating) return;
+
+    const startAnimation = () => {
+      if (animationRef.current) {
+        const elements = animationRef.current.querySelectorAll('[data-animate]');
+        elements.forEach(el => {
+          el.style.animation = 'none';
+          setTimeout(() => {
+            el.style.animation = '';
+          }, 10);
+        });
+      }
+    };
+
+    const interval = setInterval(startAnimation, 5000);
     return () => clearInterval(interval);
-  }, []);
-
-  // Handle click animation
-  const handleScannerClick = () => {
-    setIsClicked(true);
-    setTimeout(() => setIsClicked(false), 500);
-  };
-
-  const handleChange = (e) => {
-    const { name, value } = e.target;
-    setForm((prev) => ({ ...prev, [name]: value }));
-  };
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setLoading(true);
-
-    try {
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      toast.success(`Welcome ${role === 'doctor' ? 'Dr.' : ''} ${form.email.split('@')[0]}!`);
-      setTimeout(() => {
-        if (role === 'patient') navigate('/patient-dashboard');
-        else navigate('/doctor-dashboard');
-      }, 1000);
-    } catch (error) {
-      toast.error('Login failed. Please try again.');
-    } finally {
-      setLoading(false);
-    }
-  };
+  }, [isAnimating]);
 
   return (
-    <div className="min-h-screen flex flex-col lg:flex-row bg-gradient-to-br from-gray-50 via-blue-50 to-teal-50">
+    <div className="min-h-screen flex bg-gradient-to-br from-blue-50 via-indigo-50 to-teal-50 overflow-hidden">
       {/* Left Panel - Login Form */}
-      <div className="w-full lg:w-1/2 flex items-center justify-center p-6 lg:p-12">
-        <div className="w-full max-w-md bg-white/95 backdrop-blur-xl rounded-3xl shadow-2xl shadow-blue-500/20 p-8 border border-blue-100">
-          {/* Logo & Header */}
-          <div className="text-center mb-8">
-            <div className={`inline-flex items-center justify-center w-16 h-16 bg-gradient-to-r from-${color}-600 to-teal-500 rounded-2xl mb-4 glow-effect`}>
-              <svg className="w-8 h-8 text-white" fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M10 2L3 7v11a1 1 0 001 1h3a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1h3a1 1 0 001-1V7l-7-5zM6 16v-4h8v4H6z" clipRule="evenodd"/>
-                <path d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-11a1 1 0 10-2 0v2H7a1 1 0 100 2h2v2a1 1 0 102 0v-2h2a1 1 0 100-2h-2V7z"/>
-              </svg>
+      <div className="w-full md:w-2/5 flex items-center justify-center p-8">
+        <div className="w-full max-w-md bg-white/95 backdrop-blur-xl rounded-3xl shadow-2xl shadow-blue-500/20 p-10 border border-blue-100">
+          <div className="text-center mb-10">
+            <div className="flex justify-center mb-6">
+              <div className="w-16 h-16 bg-gradient-to-r from-blue-600 to-teal-500 rounded-2xl flex items-center justify-center shadow-lg">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                </svg>
+              </div>
             </div>
-            <h1 className="text-3xl font-bold text-blue-900 mb-2">LifeLink Medical</h1>
-            <p className="text-blue-700">Secure Healthcare Access Portal</p>
+            <h1 className="text-4xl font-bold text-blue-900 mb-3">LifeLink Medical</h1>
+            <p className="text-blue-700 text-lg">Secure access to your healthcare portal</p>
           </div>
 
-          {/* Role Toggle */}
-          <div className={`flex justify-center mb-8 bg-${color}-100 rounded-full p-1 relative`}>
-            <div 
-              className={`absolute top-1 bottom-1 bg-gradient-to-r from-${color}-600 to-teal-500 rounded-full transition-all duration-300 shadow-md ${
-                role === 'patient' ? 'left-1 w-[calc(50%-4px)]' : 'right-1 w-[calc(50%-4px)]'
-              }`}
-            />
+          <div className="mb-8 flex bg-blue-100 rounded-xl p-1.5">
             <button
-              onClick={() => setRole('patient')}
-              className={`relative px-6 py-2 rounded-full text-sm font-medium transition-colors duration-300 ${
-                role === 'patient' ? 'text-white' : 'text-blue-600 hover:text-blue-800'
-              }`}
+              onClick={() => setUserType('patient')}
+              className={`flex-1 py-4 px-6 rounded-xl transition-all duration-300 ${userType === 'patient' ? 'bg-white shadow-md text-blue-800 font-semibold' : 'text-blue-600'}`}
             >
-              👨‍⚕️ Patient
+              Patient Login
             </button>
             <button
-              onClick={() => setRole('doctor')}
-              className={`relative px-6 py-2 rounded-full text-sm font-medium transition-colors duration-300 ${
-                role === 'doctor' ? 'text-white' : 'text-teal-600 hover:text-teal-800'
-              }`}
+              onClick={() => setUserType('doctor')}
+              className={`flex-1 py-4 px-6 rounded-xl transition-all duration-300 ${userType === 'doctor' ? 'bg-white shadow-md text-blue-800 font-semibold' : 'text-blue-600'}`}
             >
-              🩺 Doctor
+              Doctor Login
             </button>
           </div>
 
-          {/* Login Form */}
-          <form onSubmit={handleSubmit} className="space-y-6">
-            <div className="space-y-2">
-              <Label htmlFor="email" className="text-blue-800 font-medium">Email Address</Label>
-              <Input
-                id="email"
-                name="email"
-                type="email"
-                value={form.email}
-                onChange={handleChange}
-                placeholder={`Enter your ${role} email`}
-                required
-                className={`h-12 bg-white border-2 border-${color}-200 focus:border-${color}-500 focus:ring-2 focus:ring-${color}-500/20 transition-all duration-300 text-blue-900`}
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="password" className="text-blue-800 font-medium">Password</Label>
+          <div className="space-y-6">
+            <div>
+              <label className="block text-md font-semibold text-blue-800 mb-2">Email Address</label>
               <div className="relative">
-                <Input
-                  id="password"
-                  name="password"
-                  type={showPassword ? 'text' : 'password'}
-                  value={form.password}
-                  onChange={handleChange}
-                  placeholder="Enter your password"
-                  required
-                  className={`h-12 bg-white border-2 border-${color}-200 focus:border-${color}-500 focus:ring-2 focus:ring-${color}-500/20 transition-all duration-300 pr-12 text-blue-900`}
+                <input 
+                  type="email" 
+                  className="w-full px-5 py-4 rounded-xl border-2 border-blue-200 focus:ring-3 focus:ring-blue-500 focus:border-blue-500 transition-all duration-300 text-blue-900" 
+                  placeholder="name@example.com"
                 />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className={`absolute right-3 top-1/2 -translate-y-1/2 text-${color}-500 hover:text-${color}-700 transition-colors`}
-                >
-                  {showPassword ? '🙈' : '👁️'}
-                </button>
-              </div>
-              <div className="text-right">
-                <a href="#" className={`text-sm text-${color}-600 hover:text-${color}-800 transition-colors`}>Forgot Password?</a>
+                <div className="absolute right-4 top-4 text-blue-500">
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" viewBox="0 0 20 20" fill="currentColor">
+                    <path d="M2.003 5.884L10 9.882l7.997-3.998A2 2 0 0016 4H4a2 2 0 00-1.997 1.884z" />
+                    <path d="M18 8.118l-8 4-8-4V14a2 2 0 002 2h12a2 2 0 002-2V8.118z" />
+                  </svg>
+                </div>
               </div>
             </div>
 
-            <Button
-              type="submit"
-              disabled={loading}
-              className={`w-full h-12 bg-gradient-to-r from-${color}-700 to-teal-600 hover:bg-gradient-to-r hover:from-${color}-800 hover:to-teal-700 text-white font-semibold rounded-xl transition-all duration-300 transform hover:scale-[0.98] hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed`}
-            >
-              {loading ? (
-                <div className="flex items-center justify-center">
-                  <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin mr-2" />
-                  Authenticating...
+            <div>
+              <label className="block text-md font-semibold text-blue-800 mb-2">Password</label>
+              <div className="relative">
+                <input 
+                  type="password" 
+                  className="w-full px-5 py-4 rounded-xl border-2 border-blue-200 focus:ring-3 focus:ring-blue-500 focus:border-blue-500 transition-all duration-300 text-blue-900" 
+                  placeholder="••••••••"
+                />
+                <div className="absolute right-4 top-4 text-blue-500">
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
+                  </svg>
                 </div>
-              ) : (
-                `Sign In as ${role === 'doctor' ? 'Doctor' : 'Patient'}`
-              )}
-            </Button>
-          </form>
+              </div>
+            </div>
 
-          <div className="text-center mt-6">
-            <p className="text-sm text-blue-700">
-              New to LifeLink?{' '}
-              <a href="#" className="text-blue-800 hover:text-blue-950 font-medium transition-colors">Create Account</a>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center">
+                <input 
+                  type="checkbox" 
+                  id="remember"
+                  className="h-5 w-5 text-blue-600 focus:ring-blue-500 border-blue-300 rounded"
+                />
+                <label htmlFor="remember" className="ml-3 block text-md text-blue-800">
+                  Remember me
+                </label>
+              </div>
+              <a href="#" className="text-md font-medium text-blue-600 hover:text-blue-900 transition-colors">
+                Forgot password?
+              </a>
+            </div>
+
+            <button 
+              type="submit"
+              className="w-full bg-gradient-to-r from-blue-700 to-teal-600 text-white py-4 rounded-xl font-semibold shadow-xl shadow-blue-500/40 hover:shadow-2xl hover:shadow-blue-500/50 transition-all duration-300 transform hover:-translate-y-1"
+            >
+              Sign In
+            </button>
+          </div>
+
+          <div className="mt-8 text-center">
+            <p className="text-blue-700 text-md">
+              Don't have an account?{' '}
+              <a href="/register" className="font-semibold text-blue-800 hover:text-blue-950 transition-colors">
+                Create new account
+              </a>
             </p>
           </div>
         </div>
       </div>
 
-      {/* Right Panel - 3D Medical Card Scanner Animation */}
-      <div 
-        className="w-full lg:w-1/2 bg-gradient-to-br from-blue-600 to-teal-500 relative overflow-hidden flex items-center justify-center p-8 cursor-pointer group"
-        ref={scannerRef}
-        onClick={handleScannerClick}
-      >
-        {/* Background Medical Pattern */}
-        <div className="absolute inset-0 opacity-10">
-          {role === 'patient' ? (
-            <>
-              <div className="absolute top-10 left-10 text-6xl animate-floating-medical">💊</div>
-              <div className="absolute top-32 right-20 text-4xl animate-floating-medical" style={{animationDelay: '1s'}}>🩺</div>
-              <div className="absolute bottom-32 left-16 text-5xl animate-floating-medical" style={{animationDelay: '2s'}}>⚕️</div>
-              <div className="absolute bottom-20 right-32 text-3xl animate-floating-medical" style={{animationDelay: '1.5s'}}>🫀</div>
-            </>
-          ) : (
-            <>
-              <div className="absolute top-10 left-10 text-6xl animate-floating-medical">🩺</div>
-              <div className="absolute top-32 right-20 text-4xl animate-floating-medical" style={{animationDelay: '1s'}}>💉</div>
-              <div className="absolute bottom-32 left-16 text-5xl animate-floating-medical" style={{animationDelay: '2s'}}>📋</div>
-              <div className="absolute bottom-20 right-32 text-3xl animate-floating-medical" style={{animationDelay: '1.5s'}}>🩻</div>
-            </>
-          )}
+      {/* Right Panel - 3D Animation */}
+      <div className="hidden md:flex md:w-3/5 items-center justify-center p-10 relative overflow-hidden">
+        {/* Animated background elements */}
+        <div className="absolute inset-0 overflow-hidden">
+          <div className="absolute -top-32 -right-32 w-96 h-96 bg-blue-400/20 rounded-full animate-pulse"></div>
+          <div className="absolute bottom-0 left-0 w-80 h-80 bg-teal-400/20 rounded-full animate-pulse animation-delay-1000"></div>
+          <div className="absolute top-1/3 left-1/4 w-64 h-64 bg-blue-600/10 rounded-full animate-pulse animation-delay-2000"></div>
         </div>
 
-        {/* Floating Particles */}
-        <div className="absolute inset-0 pointer-events-none">
-          {[...Array(15)].map((_, i) => (
-            <div
-              key={i}
-              className={`absolute w-2 h-2 bg-${color}-300/30 rounded-full animate-particle-float`}
-              style={{
-                left: `${Math.random() * 100}%`,
-                top: `${Math.random() * 100}%`,
-                animationDelay: `${Math.random() * 4}s`,
-                animationDuration: `${3 + Math.random() * 3}s`
-              }}
-            />
-          ))}
+        {/* Floating medical icons */}
+        <div className="absolute top-24 left-24 animate-float">
+          <div className="w-14 h-14 bg-blue-200/80 backdrop-blur-md rounded-2xl flex items-center justify-center shadow-xl">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-blue-700" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+            </svg>
+          </div>
         </div>
 
-        {/* Ripple Effect on Click */}
-        {isClicked && (
-          <div className="absolute inset-0 flex items-center justify-center">
-            <div className="w-96 h-96 bg-white/20 rounded-full animate-ripple" />
+        <div className="absolute bottom-32 right-32 animate-float animation-delay-1000">
+          <div className="w-14 h-14 bg-teal-200/80 backdrop-blur-md rounded-2xl flex items-center justify-center shadow-xl">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-teal-700" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+            </svg>
           </div>
-        )}
+        </div>
 
-        {/* Main 3D Scanner Machine */}
-        <div className="relative z-10 w-full max-w-md transition-all duration-300 group-hover:scale-105">
-          {/* Role-based Title */}
-          <div className="text-center mb-8">
-            <h2 className="text-3xl font-bold text-white mb-4">
-              {role === 'doctor' ? 'Medical Professional Portal' : 'Patient Care Access'}
-            </h2>
-            <p className="text-white/80 text-lg">
-              {role === 'doctor' 
-                ? 'Advanced healthcare management system' 
-                : 'Your personal health companion'
-              }
-            </p>
+        <div className="absolute top-1/2 left-1/3 animate-float animation-delay-2000">
+          <div className="w-12 h-12 bg-blue-300/60 backdrop-blur-md rounded-2xl flex items-center justify-center shadow-xl">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-blue-800" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+            </svg>
           </div>
+        </div>
 
-          {/* 3D Card Scanner Animation */}
-          <div className="relative perspective-1000 mb-8">
-            {/* Scanner Machine Base */}
-            <div className={`scanner-machine w-full h-32 relative rounded-2xl overflow-hidden bg-gradient-to-b from-gray-800 to-gray-900 border-2 border-${color}-700/50 shadow-2xl group-hover:shadow-[0_0_30px_10px_rgba(59,130,246,0.3)] transition-shadow duration-300 ${isClicked ? 'scale-95' : ''}`}>
-              {/* Card Slot */}
-              <div className="absolute top-4 left-4 right-4 h-20 bg-black/50 rounded-xl border-2 border-white/20 flex items-center justify-center">
-                <div className="text-white/60 text-sm font-mono">INSERT MEDICAL CARD</div>
-              </div>
+        <div className="absolute top-40 right-40 animate-float animation-delay-1500">
+          <div className="w-10 h-10 bg-teal-300/60 backdrop-blur-md rounded-xl flex items-center justify-center shadow-lg">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-teal-800" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.121 14.121L19 19m-7-7l7-7m-7 7l-2.879 2.879M12 12L9.121 9.121m0 5.758a3 3 0 10-4.243 4.243 3 3 0 004.243-4.243zm0-5.758a3 3 0 10-4.243-4.243 3 3 0 004.243 4.243z" />
+            </svg>
+          </div>
+        </div>
+
+        {/* Main 3D Card Scanner Animation */}
+        <div ref={animationRef} className="relative w-full h-full max-w-2xl max-h-[600px] flex items-center justify-center">
+          {/* Scanner Machine */}
+          <div className="absolute w-96 h-80 bg-gradient-to-b from-gray-800 to-gray-900 rounded-3xl shadow-2xl z-10 border-2 border-gray-700/50">
+            {/* Card Slot */}
+            <div className="absolute w-72 h-52 bg-gray-800/90 left-1/2 -translate-x-1/2 top-6 rounded-xl border-2 border-gray-600/70 overflow-hidden">
+              <div className="absolute inset-0 bg-gradient-to-b from-gray-900/40 to-gray-700/30"></div>
               
-              {/* Status Lights */}
-              <div className="absolute top-2 right-2 flex space-x-2">
-                <div className={`w-3 h-3 rounded-full ${animationPhase === 0 ? 'bg-red-500' : animationPhase === 1 ? 'bg-yellow-400' : 'bg-green-500'} shadow-[0_0_8px_2px_rgba(255,255,255,0.4)]`} />
-                <div className={`w-3 h-3 rounded-full ${animationPhase >= 1 ? 'bg-green-500' : 'bg-gray-400'} shadow-[0_0_8px_2px_rgba(255,255,255,0.4)]`} />
+              {/* Scanning Beam */}
+              <div 
+                data-animate
+                className="absolute w-full h-1.5 bg-blue-400 top-1/2 shadow-[0_0_25px_8px_rgba(59,130,246,0.6)] rounded-full animate-scan-beam"
+              ></div>
+              
+              {/* LED Indicators */}
+              <div className="absolute top-4 right-4 flex space-x-2">
+                <div className="w-3 h-3 bg-red-500 rounded-full animate-pulse shadow-[0_0_8px_2px_rgba(239,68,68,0.6)]"></div>
+                <div 
+                  data-animate
+                  className="w-3 h-3 bg-yellow-500 rounded-full animate-pulse shadow-[0_0_8px_2px_rgba(245,158,11,0.6)] animation-delay-1000"
+                ></div>
+                <div 
+                  data-animate
+                  className="w-3 h-3 bg-green-500 rounded-full animate-pulse shadow-[0_0_8px_2px_rgba(16,185,129,0.6)] animation-delay-2000"
+                ></div>
               </div>
 
-              {/* Scanner Beam */}
-              {animationPhase === 1 && (
-                <div className="absolute top-4 left-4 right-4 h-20 overflow-hidden rounded-xl">
-                  <div className={`scanner-beam absolute inset-0 w-8 bg-gradient-to-r from-transparent via-${color}-400 to-transparent opacity-80 shadow-[0_0_20px_5px_rgba(59,130,246,0.6)]`} />
-                </div>
-              )}
-              
-              {/* LED Strip */}
-              <div className={`absolute bottom-2 left-4 right-4 h-1 bg-gradient-to-r from-red-500 via-yellow-400 to-green-500 rounded-full opacity-60`} />
-            </div>
-
-            {/* 3D Medical Card */}
-            <div className={`absolute -top-2 left-8 right-8 transition-transform duration-300 ${isClicked ? 'scale-110' : ''}`}>
-              <div className={`medical-card relative h-24 animate-card-insert transform-gpu`} style={{transformStyle: 'preserve-3d'}}>
-                <img 
-                  src={medicalCard} 
-                  alt="Medical Insurance Card" 
-                  className="w-full h-full object-cover rounded-xl shadow-xl"
-                />
-                <div className="absolute inset-0 bg-gradient-to-r from-white/20 to-transparent rounded-xl" />
-                
-                {/* Holographic Effect */}
-                <div className={`absolute inset-0 bg-gradient-to-br from-transparent via-${color}-400/30 to-transparent rounded-xl animate-pulse-glow`} />
+              {/* Scanner Text */}
+              <div className="absolute bottom-4 left-4 text-xs text-gray-400 font-medium">
+                MEDICAL ID SCANNER v2.1
               </div>
             </div>
+            
+            {/* Scanner Details */}
+            <div className="absolute bottom-6 left-1/2 -translate-x-1/2 w-72 h-8 bg-gray-800 rounded-lg border border-gray-700"></div>
+            <div className="absolute bottom-16 left-1/2 -translate-x-1/2 w-48 h-1 bg-gray-600 rounded-full"></div>
           </div>
 
-          {/* Feature List */}
-          <div className="text-center text-white/80">
-            <p className="text-sm">Powered by Secure Scan Technology</p>
+          {/* Medical Card */}
+          <div 
+            data-animate
+            className="absolute w-64 h-44 bg-gradient-to-br from-blue-600 via-blue-500 to-blue-700 rounded-2xl shadow-2xl z-20 animate-card-insert preserve-3d"
+            style={{ transformStyle: 'preserve-3d' }}
+          >
+            <div className="absolute inset-0 rounded-2xl bg-gradient-to-b from-white/15 to-transparent"></div>
+            <div className="absolute inset-0 rounded-2xl border border-white/10"></div>
+            
+            {/* Card Chip */}
+            <div className="absolute top-6 left-6 w-10 h-8 bg-gradient-to-r from-yellow-400 to-yellow-300 rounded-md shadow-md"></div>
+            
+            {/* Card Lines */}
+            <div className="absolute top-20 left-6 w-48 h-1 bg-white/50 rounded-full"></div>
+            <div className="absolute top-24 left-6 w-40 h-1 bg-white/40 rounded-full"></div>
+            <div className="absolute top-28 left-6 w-44 h-1 bg-white/30 rounded-full"></div>
+            
+            {/* Medical Symbol */}
+            <div className="absolute bottom-6 right-6 w-10 h-10 bg-white/95 rounded-full flex items-center justify-center shadow-lg">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-blue-600" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clipRule="evenodd" />
+              </svg>
+            </div>
+
+            {/* Card Text */}
+            <div className="absolute top-10 left-6 text-xs text-white/80 font-medium tracking-wider">
+              MEDICAL ID CARD
+            </div>
+            <div className="absolute bottom-6 left-6 text-xs text-white/60">
+              •••• •••• •••• 1234
+            </div>
+            
+            {/* Shimmer Effect */}
+            <div 
+              data-animate
+              className="absolute inset-0 bg-gradient-to-r from-transparent via-white/40 to-transparent animate-shimmer rounded-2xl"
+            ></div>
+
+            {/* Holographic Effect */}
+            <div className="absolute top-0 right-0 w-16 h-16 bg-gradient-to-br from-teal-400/30 to-blue-500/30 rounded-full blur-md"></div>
           </div>
+
+          {/* Floating Particles */}
+          <div className="absolute -top-10 left-20 w-4 h-4 bg-blue-400/30 rounded-full animate-particle-float"></div>
+          <div className="absolute top-40 right-28 w-3 h-3 bg-teal-400/40 rounded-full animate-particle-float animation-delay-1000"></div>
+          <div className="absolute bottom-32 left-40 w-5 h-5 bg-blue-500/20 rounded-full animate-particle-float animation-delay-2000"></div>
+          <div className="absolute bottom-20 right-44 w-2 h-2 bg-teal-500/30 rounded-full animate-particle-float animation-delay-1500"></div>
+        </div>
+      </div>
+
+      {/* Mobile message */}
+      <div className="md:hidden fixed inset-0 bg-gradient-to-br from-blue-600 to-teal-500 flex items-center justify-center p-8 text-white text-center">
+        <div className="bg-white/10 backdrop-blur-md rounded-3xl p-10 shadow-2xl">
+          <h2 className="text-3xl font-bold mb-6">Enhanced Experience Available</h2>
+          <p className="text-xl">For the full 3D medical card animation experience, please view on a larger screen.</p>
         </div>
       </div>
     </div>
   );
-}
+};
+
+export default MedicalLogin;
