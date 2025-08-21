@@ -5,7 +5,7 @@ const bodyParser = require('body-parser');
 const mongoose = require('mongoose');
 const authRoutes = require('./routes/Authroutes');
 const jwt = require('jsonwebtoken');
-const User = require('./controller/authcontroller').User;
+const { User } = require('./controller/authcontroller');
 
 const app = express();
 app.use(cors());
@@ -26,7 +26,14 @@ app.get('/api/auth/me', async (req, res) => {
 	const token = auth.split(' ')[1];
 	try {
 		const payload = jwt.verify(token, process.env.JWT_SECRET || 'dev_secret');
-		const user = await User.findById(payload.id).select('-passwordHash');
+		let q = User.findById(payload.id).select('-passwordHash');
+		// populate related lists depending on role
+		if (payload.role === 'patient') {
+			q = q.populate('primaryDoctors', 'name email medicalId');
+		} else if (payload.role === 'doctor') {
+			q = q.populate('primaryPatients', 'name email phone');
+		}
+		const user = await q;
 		if (!user) return res.status(401).json({ message: 'Invalid token' });
 		return res.json({ user });
 	} catch (e) {

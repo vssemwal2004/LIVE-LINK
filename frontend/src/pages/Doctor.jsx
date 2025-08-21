@@ -10,7 +10,10 @@ export default function Doctor() {
     if (!token) return navigate('/login')
     fetch('http://localhost:5000/api/auth/me', { headers: { Authorization: `Bearer ${token}` } })
       .then((r) => r.json())
-      .then((d) => setUser(d.user))
+      .then((d) => {
+        if (d.user?.role !== 'doctor') return navigate('/patient')
+        setUser(d.user)
+      })
       .catch(() => navigate('/login'))
   }, [])
 
@@ -28,6 +31,22 @@ export default function Doctor() {
         <button onClick={logout} className="bg-red-500 text-white px-3 py-1 rounded">Logout</button>
       </div>
       <p className="mt-2">Welcome, Dr. {user.name}</p>
+
+      <div className="mt-6 bg-white border rounded p-4">
+        <h2 className="text-lg font-semibold mb-2">Primary Patients</h2>
+        {Array.isArray(user.primaryPatients) && user.primaryPatients.length > 0 ? (
+          <ul className="space-y-2">
+            {user.primaryPatients.map((p) => (
+              <li key={p._id} className="border rounded p-2">
+                <div className="font-medium">{p.name}</div>
+                <div className="text-sm text-gray-600">{p.email}</div>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <div className="text-gray-600">No primary patients yet.</div>
+        )}
+      </div>
     </div>
   )
 }
