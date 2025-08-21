@@ -1,23 +1,52 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import '/src/App.css'; // Ensure Tailwind is included in your project setup
 
-const MedicalLogin = () => {
-  const [userType, setUserType] = useState('patient');
-  const [isAnimating, setIsAnimating] = useState(true);
-  const animationRef = useRef(null);
+export default function Login() {
+  const [role, setRole] = useState('patient');
+  const [form, setForm] = useState({ email: '', password: '' });
+  const [toast, setToast] = useState({ type: '', message: '' });
+  const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const navigate = useNavigate();
 
-  // Continuous animation loop
-  useEffect(() => {
-    if (!isAnimating) return;
+  const handleChange = (e) => {
+    const { name, value } = e.target;
+    setForm((prev) => ({ ...prev, [name]: value }));
+  };
 
-    const startAnimation = () => {
-      if (animationRef.current) {
-        const elements = animationRef.current.querySelectorAll('[data-animate]');
-        elements.forEach(el => {
-          el.style.animation = 'none';
-          setTimeout(() => {
-            el.style.animation = '';
-          }, 10);
-        });
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setToast({});
+    setLoading(true);
+    try {
+      const url = `http://localhost:5000/api/auth/login/${role}`;
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(form),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setToast({ type: 'error', message: data.message || 'Login failed' });
+      } else {
+<<<<<<<<< Temporary merge branch 1
+        localStorage.setItem('token', data.token);
+        localStorage.setItem('user', JSON.stringify(data.user));
+        setToast({ type: 'success', message: 'Login successful' });
+||||||||| 909a496
+        localStorage.setItem('token', data.token)
+        localStorage.setItem('user', JSON.stringify(data.user))
+        setToast({ type: 'success', message: 'Login successful' })
+=========
+        localStorage.setItem('token', data.token)
+  localStorage.setItem('user', JSON.stringify(data.user))
+        setToast({ type: 'success', message: 'Login successful' })
+>>>>>>>>> Temporary merge branch 2
+        setTimeout(() => {
+          if (role === 'patient') navigate('/patient');
+          else navigate('/doctor');
+        }, 700);
       }
     };
 
