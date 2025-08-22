@@ -802,6 +802,63 @@ exports.listCriticalRequests = async (req, res) => {
   }
 };
 
+// Function to log emergency and critical data access to n8n for Google Sheets tracking
+const logDataAccessToN8n = async (doctor, patient, tier) => {
+  try {
+    // Only log emergency and critical tier access
+    if (!['emergency', 'critical'].includes(tier)) return;
+    
+    // Prepare the webhook URL - use environment variable or default URL
+    const webhookUrl =
+      process.env.N8N_DATA_ACCESS_WEBHOOK_URL ||
+      process.env.N8N_AUDIT_WEBHOOK_URL ||
+      process.env.N8N_AUDIT_WEBHOOK_UR ||
+      'https://anany.app.n8n.cloud/webhook-test/data-access-log';
+    if (!webhookUrl) return;
+    if (webhookUrl.includes('/webhook-test/')) {
+      console.warn('[notify] Using n8n TEST webhook URL; make sure the workflow is executing (listening) in n8n or you will see 404.');
+    }
+    
+    // Prepare the payload with all necessary information
+    const payload = {
+      event: 'data_access',
+      accessTime: new Date().toISOString(),
+      tier,
+  // Top-level aliases for easier n8n mappings (avoid undefined in Sheets)
+  timestamp: new Date().toISOString(),
+      doctor: {
+        id: String(doctor._id),
+        name: doctor.name,
+        email: doctor.email,
+        medicalId: doctor.medicalId
+      },
+  doctorId: String(doctor._id),
+  doctorName: doctor.name,
+  doctorEmail: doctor.email,
+  doctorMedicalId: doctor.medicalId,
+      patient: {
+        id: String(patient._id),
+        name: patient.name,
+        cardNumber: patient.cardNumber
+  },
+  patientId: String(patient._id),
+  patientName: patient.name,
+  patientCardNumber: patient.cardNumber
+    };
+    
+    // Add webhook secret if available
+    const secret = process.env.NOTIFY_WEBHOOK_SECRET || 'S3cureCriticalAccess2025!@#Xh7t9f!kL2qP0mNs8vR1zW4yB6aD3g';
+    const headers = secret ? { 'x-webhook-secret': secret } : {};
+    
+  // Send the data to n8n webhook
+  console.log(`[notify] Logging ${tier} data access to n8n webhook: ${webhookUrl}`);
+    postJson(webhookUrl, JSON.stringify(payload), headers);
+  } catch (error) {
+    console.error('Error logging data access to n8n:', error);
+    // Don't throw error to prevent disrupting the main function flow
+  }
+};
+
 // Retrieve records with access control
 exports.getPatientRecords = async (req, res) => {
   try {
@@ -845,6 +902,24 @@ exports.getPatientRecords = async (req, res) => {
     const recs = await PatientRecord.find(q).sort({ createdAt: -1 });
 
     const filtered = recs.filter((r) => allowedTiers.has(r.accessTier));
+    
+    // Log access to emergency and critical data
+    if (tier && ['emergency', 'critical'].includes(tier) && filtered.length > 0) {
+      // If a specific tier was requested and records were found, log the access
+      logDataAccessToN8n(doctor, patient, tier);
+    } else {
+      // If no specific tier was requested, check if any emergency/critical records were accessed
+      const emergencyRecords = filtered.filter(r => r.accessTier === 'emergency');
+      const criticalRecords = filtered.filter(r => r.accessTier === 'critical');
+      
+      if (emergencyRecords.length > 0) {
+        logDataAccessToN8n(doctor, patient, 'emergency');
+      }
+      
+      if (criticalRecords.length > 0) {
+        logDataAccessToN8n(doctor, patient, 'critical');
+      }
+    }
     const bucket = process.env.SUPABASE_BUCKET || 'patient-records';
     const usePublic = (process.env.SUPABASE_PUBLIC || 'true').toLowerCase() === 'true';
     const mapFiles = async (arr = []) => Promise.all(arr.map(async (f) => {
@@ -1108,6 +1183,28 @@ exports.rejectProposal = async (req, res) => {
 
 // Set PIN for critical access verification (primary doctor only)
 
+// Get access logs from Google Sheets
+exports.getAccessLogs = async (req, res) => {
+  try {
+    const doctor = await User.findById(req.userId);
+    if (!doctor || doctor.role !== 'doctor') return res.status(403).json({ message: 'Only doctors can access logs' });
+    
+    // Get the Google Sheets URL from environment variables
+    const googleSheetsUrl = process.env.N8N_GOOGLE_SHEETS_URL;
+    if (!googleSheetsUrl) {
+      return res.status(500).json({ message: 'Google Sheets URL not configured' });
+    }
+    
+    // Return the Google Sheets URL to the frontend
+    return res.json({ 
+      message: 'Access logs retrieved successfully', 
+      sheetsUrl: googleSheetsUrl 
+    });
+  } catch (e) {
+    console.error('getAccessLogs error', e);
+    return res.status(500).json({ message: 'Server error' });
+  }
+};
 
 // Update an existing section (primary doctor only)
 exports.updateRecordSection = async (req, res) => {
