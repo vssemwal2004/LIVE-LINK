@@ -7,6 +7,8 @@ export default function PatientRecords() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [activeTab, setActiveTab] = useState('all'); // 'all', 'early', 'emergency', 'critical'
+  const [pin, setPin] = useState('');
+  const [pinError, setPinError] = useState('');
   const navigate = useNavigate();
 
   const token = localStorage.getItem('token');
@@ -34,8 +36,11 @@ export default function PatientRecords() {
     setLoading(true);
     setError(null);
     try {
+      if (!/^\d{4}$/.test(pin)) {
+        throw new Error('Enter your 4-digit records PIN');
+      }
       const r = await fetch('http://localhost:5000/api/auth/patient/my-records', {
-        headers: { Authorization: `Bearer ${token}` },
+        headers: { Authorization: `Bearer ${token}`, 'x-record-pin': pin },
       });
       const d = await r.json();
       if (!r.ok) throw new Error(d.message || 'Failed to load records');
@@ -53,10 +58,7 @@ export default function PatientRecords() {
   }, []);
 
   useEffect(() => {
-    if (user) {
-      loadRecords();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // Wait for explicit PIN entry; do not auto-load
   }, [user]);
 
   // Filter records based on active tab
@@ -74,6 +76,34 @@ export default function PatientRecords() {
       hour: '2-digit',
       minute: '2-digit'
     });
+  };
+
+  // Pretty labels and flattening helpers to render all details (except 'description')
+  const prettyLabel = (k = '') => String(k)
+    .replace(/_/g, ' ')
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replace(/^\w/, (c) => c.toUpperCase());
+
+  const flattenDataEntries = (data) => {
+    const out = [];
+    const walk = (obj, prefix = '') => {
+      if (!obj || typeof obj !== 'object') return;
+      Object.entries(obj).forEach(([key, val]) => {
+        if (key === 'description') return; // skip description per requirements
+        const label = prefix ? `${prefix} — ${prettyLabel(key)}` : prettyLabel(key);
+        if (val && typeof val === 'object' && !Array.isArray(val)) {
+          // nested object: dive deeper
+          walk(val, label);
+        } else if (Array.isArray(val)) {
+          const printable = val.map((v) => (v && typeof v === 'object') ? JSON.stringify(v) : String(v ?? ''));
+          out.push([label, printable.join(', ')]);
+        } else {
+          out.push([label, String(val ?? '')]);
+        }
+      });
+    };
+    walk(data || {});
+    return out;
   };
 
   // Navigate back to dashboard
@@ -116,6 +146,25 @@ export default function PatientRecords() {
             </svg>
             <span>Back to Dashboard</span>
           </button>
+        </div>
+
+        {/* PIN Entry */}
+        <div className="mb-6 flex items-end space-x-3">
+          <div>
+            <label className="block text-sm font-semibold text-blue-800 mb-1">4-Digit PIN</label>
+            <input
+              type="password"
+              maxLength={4}
+              inputMode="numeric"
+              pattern="[0-9]*"
+              value={pin}
+              onChange={(e) => setPin(e.target.value)}
+              className="px-3 py-2 rounded-lg border-2 border-blue-200 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all duration-300 text-blue-900 text-sm"
+              placeholder="••••"
+            />
+          </div>
+          <button onClick={loadRecords} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors text-sm">Load Records</button>
+          {pinError && <p className="text-red-600 text-sm">{pinError}</p>}
         </div>
 
         {/* Tabs */}
@@ -190,21 +239,16 @@ export default function PatientRecords() {
                     </div>
                   </div>
                   
-                  {/* Record Content */}
+                  {/* Record Content (show all details except description) */}
                   <div className="prose prose-sm max-w-none">
-                    <p>{record.data?.description || 'No description provided.'}</p>
-                    
-                    {/* Display record fields */}
-                    {record.data?.fields && Object.entries(record.data.fields).length > 0 && (
-                      <div className="mt-4 grid grid-cols-2 gap-4">
-                        {Object.entries(record.data.fields).map(([key, value]) => (
-                          <div key={key} className="bg-gray-50 p-3 rounded-lg">
-                            <p className="text-xs text-gray-500 font-medium">{key}</p>
-                            <p className="font-medium">{value}</p>
-                          </div>
-                        ))}
-                      </div>
-                    )}
+                    <div className="mt-1 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      {flattenDataEntries(record.data).map(([k, v]) => (
+                        <div key={k} className="bg-gray-50 p-3 rounded-lg">
+                          <p className="text-xs text-gray-500 font-medium">{k}</p>
+                          <p className="font-medium break-words">{v || '—'}</p>
+                        </div>
+                      ))}
+                    </div>
                     
                     {/* Files */}
                     {record.files && record.files.length > 0 && (
@@ -242,19 +286,14 @@ export default function PatientRecords() {
                           </div>
                           
                           <div className="prose prose-sm max-w-none">
-                            <p>{section.data?.description || 'No description provided.'}</p>
-                            
-                            {/* Display section fields */}
-                            {section.data?.fields && Object.entries(section.data.fields).length > 0 && (
-                              <div className="mt-3 grid grid-cols-2 gap-3">
-                                {Object.entries(section.data.fields).map(([key, value]) => (
-                                  <div key={key} className="bg-white p-2 rounded-lg border border-gray-100">
-                                    <p className="text-xs text-gray-500 font-medium">{key}</p>
-                                    <p className="font-medium">{value}</p>
-                                  </div>
-                                ))}
-                              </div>
-                            )}
+                            <div className="mt-1 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                              {flattenDataEntries(section.data).map(([k, v]) => (
+                                <div key={k} className="bg-white p-2 rounded-lg border border-gray-100">
+                                  <p className="text-xs text-gray-500 font-medium">{k}</p>
+                                  <p className="font-medium break-words">{v || '—'}</p>
+                                </div>
+                              ))}
+                            </div>
                             
                             {/* Section Files */}
                             {section.files && section.files.length > 0 && (
