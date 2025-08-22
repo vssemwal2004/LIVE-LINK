@@ -557,7 +557,8 @@ const accessRequestSchema = new mongoose.Schema(
       {
         name: String,
         mime: String,
-        url: String,
+  url: String,
+  path: String,
       },
     ],
   },
@@ -599,6 +600,22 @@ exports.createAccessRequest = async (req, res) => {
       }
       status = 'approved';
       expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+    } else if (tier === 'critical') {
+      // Require exactly 3 proof documents (min 3, max 3) for critical requests; stays pending for primary approval
+      const fs = req.files || [];
+      if (fs.length < 3) return res.status(400).json({ message: 'Upload minimum 3 documents for critical access' });
+      if (fs.length > 3) return res.status(400).json({ message: 'Maximum 3 documents allowed for critical access' });
+      if (!supabase) return res.status(500).json({ message: 'File storage not configured' });
+      const bucket = process.env.SUPABASE_BUCKET || 'patient-records';
+      for (const f of fs) {
+        const path = `access-proofs/${patient._id}/${Date.now()}-${Math.random().toString(36).slice(2)}-${safeFileName(f.originalname)}`;
+        const { error } = await uploadWithEnsure(bucket, path, f.buffer, f.mimetype);
+        if (error) {
+          console.error('Supabase upload error', error);
+          return res.status(500).json({ message: 'Proof upload failed: ' + (error?.message || 'unknown') });
+        }
+        proofs.push({ name: f.originalname, mime: f.mimetype, path });
+      }
     }
 
     const ar = new AccessRequest({ patient: patient._id, requesterDoctor: doctor._id, tier, status, expiresAt, proofs });
@@ -634,6 +651,72 @@ exports.approveAccessRequest = async (req, res) => {
     return res.json({ message: 'Approved', request: { id: ar._id, status: ar.status, expiresAt: ar.expiresAt } });
   } catch (e) {
     console.error('approveAccessRequest error', e);
+    return res.status(500).json({ message: 'Server error' });
+  }
+};
+
+// Primary doctor rejects critical access
+exports.rejectAccessRequest = async (req, res) => {
+  try {
+    const approver = await User.findById(req.userId);
+    if (!approver || approver.role !== 'doctor') return res.status(403).json({ message: 'Only doctors can reject' });
+    const { id } = req.params;
+    const ar = await AccessRequest.findById(id).populate('patient requesterDoctor');
+    if (!ar) return res.status(404).json({ message: 'Request not found' });
+    if (ar.tier !== 'critical') return res.status(400).json({ message: 'Only critical requests can be rejected here' });
+    const isPrimary = await User.exists({ _id: ar.patient._id, primaryDoctors: approver._id });
+    if (!isPrimary) return res.status(403).json({ message: 'Only primary doctor can reject' });
+    ar.status = 'rejected';
+    ar.expiresAt = undefined;
+    await ar.save();
+    return res.json({ message: 'Rejected', request: { id: ar._id, status: ar.status } });
+  } catch (e) {
+    console.error('rejectAccessRequest error', e);
+    return res.status(500).json({ message: 'Server error' });
+  }
+};
+
+// List pending critical access requests for a primary doctor
+exports.listCriticalRequests = async (req, res) => {
+  try {
+    const doctor = await User.findById(req.userId);
+    if (!doctor || doctor.role !== 'doctor') return res.status(403).json({ message: 'Only doctors' });
+    const pats = await User.find({ role: 'patient', primaryDoctors: doctor._id }).select('_id name cardNumber');
+    const patIds = pats.map((p) => p._id);
+    if (patIds.length === 0) return res.json({ requests: [] });
+    const reqs = await AccessRequest.find({ patient: { $in: patIds }, tier: 'critical', status: 'pending' })
+      .populate('patient', 'name cardNumber')
+      .populate('requesterDoctor', 'name email');
+
+    const bucket = process.env.SUPABASE_BUCKET || 'patient-records';
+    const usePublic = (process.env.SUPABASE_PUBLIC || 'true').toLowerCase() === 'true';
+    const mapProof = async (p) => {
+      if (p?.path && supabase) {
+        if (usePublic) {
+          const { data: pub } = supabase.storage.from(bucket).getPublicUrl(p.path);
+          return { name: p.name, mime: p.mime, url: pub?.publicUrl || null };
+        } else {
+          const ttl = parseInt(process.env.SUPABASE_SIGNED_TTL || '600', 10);
+          const { data } = await supabase.storage.from(bucket).createSignedUrl(p.path, ttl);
+          return { name: p.name, mime: p.mime, url: data?.signedUrl || null };
+        }
+      }
+      if (p?.url) return { name: p.name, mime: p.mime, url: p.url };
+      return { name: p?.name, mime: p?.mime };
+    };
+
+    const out = await Promise.all(
+      reqs.map(async (r) => ({
+        id: r._id,
+        createdAt: r.createdAt,
+        patient: { id: r.patient._id, name: r.patient.name, cardNumber: r.patient.cardNumber },
+        requester: { id: r.requesterDoctor._id, name: r.requesterDoctor.name },
+        proofs: await Promise.all((r.proofs || []).map(mapProof)),
+      }))
+    );
+    return res.json({ requests: out });
+  } catch (e) {
+    console.error('listCriticalRequests error', e);
     return res.status(500).json({ message: 'Server error' });
   }
 };

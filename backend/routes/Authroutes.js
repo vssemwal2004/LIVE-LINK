@@ -52,7 +52,9 @@ router.get(
 // access requests and retrieval
 router.post('/doctor/patient/:patientId/access-request', controller.authRequired, upload.array('files', 10), controller.createAccessRequest);
 router.post('/doctor/access-request/:id/approve', controller.authRequired, controller.approveAccessRequest);
+router.post('/doctor/access-request/:id/reject', controller.authRequired, controller.rejectAccessRequest);
 router.get('/doctor/patient/:patientId/records', controller.authRequired, controller.getPatientRecords);
+router.get('/doctor/critical-requests/pending', controller.authRequired, controller.listCriticalRequests);
 
 // edit proposals
 router.post(

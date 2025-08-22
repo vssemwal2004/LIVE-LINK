@@ -268,6 +268,12 @@ export default function Doctor() {
               Review Proposals
             </button>
             <button
+              onClick={() => navigate('/doctor/critical-requests')}
+              className="bg-gradient-to-r from-red-600 to-red-700 text-white px-4 py-2 rounded-lg font-semibold transition-all duration-300 transform hover:-translate-y-1 text-sm"
+            >
+              Critical Requests
+            </button>
+            <button
               onClick={logout}
               className="bg-gradient-to-r from-red-600 to-red-700 text-white px-5 py-2 rounded-lg font-semibold transition-all duration-300 transform hover:-translate-y-1 text-sm flex items-center space-x-2"
             >
