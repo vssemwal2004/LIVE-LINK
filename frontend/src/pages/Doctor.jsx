@@ -248,7 +248,7 @@ export default function Doctor() {
 
       <div className="w-full max-w-5xl bg-white/95 backdrop-blur-xl rounded-3xl p-8 border border-blue-100/50 relative z-10">
         {/* Header */}
-        <div className="flex justify-between items-center mb-8">
+  <div className="flex justify-between items-center mb-8">
           <div className="flex items-center space-x-4">
             <div className="w-12 h-12 bg-gradient-to-r from-blue-600 to-teal-500 rounded-xl flex items-center justify-center animate-pulse-slow">
               <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -260,15 +260,35 @@ export default function Doctor() {
               <p className="text-blue-700 text-sm mt-1">Welcome, Dr. {user.name}. Manage your patients efficiently.</p>
             </div>
           </div>
-          <button
-            onClick={logout}
-            className="bg-gradient-to-r from-red-600 to-red-700 text-white px-5 py-2 rounded-lg font-semibold transition-all duration-300 transform hover:-translate-y-1 text-sm flex items-center space-x-2"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-            </svg>
-            <span>Logout</span>
-          </button>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => navigate('/doctor/patient-edit')}
+              className="bg-gradient-to-r from-blue-600 to-teal-600 text-white px-4 py-2 rounded-lg font-semibold transition-all duration-300 transform hover:-translate-y-1 text-sm"
+            >
+              Edit Patient
+            </button>
+            <button
+              onClick={() => navigate('/doctor/proposals')}
+              className="bg-gradient-to-r from-indigo-600 to-indigo-700 text-white px-4 py-2 rounded-lg font-semibold transition-all duration-300 transform hover:-translate-y-1 text-sm"
+            >
+              Review Proposals
+            </button>
+            <button
+              onClick={() => navigate('/doctor/critical-requests')}
+              className="bg-gradient-to-r from-red-600 to-red-700 text-white px-4 py-2 rounded-lg font-semibold transition-all duration-300 transform hover:-translate-y-1 text-sm"
+            >
+              Critical Requests
+            </button>
+            <button
+              onClick={logout}
+              className="bg-gradient-to-r from-red-600 to-red-700 text-white px-5 py-2 rounded-lg font-semibold transition-all duration-300 transform hover:-translate-y-1 text-sm flex items-center space-x-2"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+              </svg>
+              <span>Logout</span>
+            </button>
+          </div>
         </div>
 
         {/* Primary Patients Section */}

@@ -8,7 +8,10 @@ export default function PatientSearch() {
   const [toast, setToast] = useState({ type: '', message: '' });
   const [files, setFiles] = useState([]);
   const [count, setCount] = useState(0);
+  const [critFiles, setCritFiles] = useState([]);
+  const [critCount, setCritCount] = useState(0);
   const [viewTier, setViewTier] = useState(null); // 'early' | 'emergency' | null
+  const [isPrimary, setIsPrimary] = useState(false);
   const navigate = useNavigate();
   const addFileInputRef = useRef(null);
   const animationRef = useRef(null);
@@ -60,6 +63,13 @@ export default function PatientSearch() {
       const d = await r.json();
       if (!r.ok) return setToast({ type: 'error', message: d.message || 'Patient not found' });
       setPatient(d.patient);
+      // determine if current doctor is primary for this patient
+      try{
+        const meR = await fetch('http://localhost:5000/api/auth/me', { headers: { Authorization: `Bearer ${token}` } })
+        const meD = await meR.json()
+        const primaries = (meD?.user?.primaryPatients || [])
+        setIsPrimary(Array.isArray(primaries) && primaries.some(pp => pp._id === d.patient.id))
+      }catch{}
       const r2 = await fetch(`http://localhost:5000/api/auth/doctor/patient/${d.patient.id}/records?tier=early`, {
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -100,6 +110,26 @@ export default function PatientSearch() {
     }
   };
 
+  const requestCritical = async () => {
+    setToast({})
+    if (!patient) return
+    try {
+      const fd = new FormData()
+      fd.append('tier', 'critical')
+  critFiles.forEach((f) => fd.append('files', f))
+      const r = await fetch(`http://localhost:5000/api/auth/doctor/patient/${patient.id}/access-request`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: fd,
+      })
+      const d = await r.json()
+      if (!r.ok) return setToast({ type: 'error', message: d.message || 'Failed to request critical access' })
+      setToast({ type: 'success', message: 'Critical access request sent to primary doctor for approval' })
+    } catch (e) {
+      setToast({ type: 'error', message: 'Server error, please try again' })
+    }
+  }
+
   const refreshEarly = async () => {
     if (!patient) return;
     try {
@@ -124,6 +154,36 @@ export default function PatientSearch() {
     setFiles(next);
     setCount(next.length);
     e.target.value = '';
+  };
+
+  const handleAddCriticalDocument = (e) => {
+    const f = e.target.files && e.target.files[0];
+    if (!f) return;
+    const next = [...critFiles, f].slice(0, 3);
+    setCritFiles(next);
+    setCritCount(next.length);
+    e.target.value = '';
+  };
+
+  const refreshCritical = async () => {
+    if (!patient) return;
+    try {
+      const r2 = await fetch(`http://localhost:5000/api/auth/doctor/patient/${patient.id}/records?tier=critical`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data2 = await r2.json();
+      if (r2.ok) {
+        // merge early/emergency already loaded with new critical
+        const nonCritical = (records || []).filter((r) => r.accessTier !== 'critical');
+        setRecords([...nonCritical, ...(data2.records || [])]);
+        setViewTier('critical');
+        setToast({ type: 'success', message: 'Critical records refreshed' });
+      } else if (data2?.message) {
+        setToast({ type: 'error', message: data2.message });
+      }
+    } catch {
+      setToast({ type: 'error', message: 'Failed to refresh critical records' });
+    }
   };
 
   return (
@@ -309,6 +369,27 @@ export default function PatientSearch() {
                 </svg>
                 <span>Request Emergency Access (10 min)</span>
               </button>
+              {!isPrimary && (
+                <div className="flex items-center gap-3">
+                  <label className="bg-gradient-to-r from-gray-800 to-gray-900 text-white px-4 py-2 rounded-lg font-semibold shadow-md cursor-pointer text-sm">
+                    <input type="file" accept="image/jpeg,image/png,application/pdf" className="hidden" onChange={handleAddCriticalDocument} />
+                    Add Critical Proof
+                  </label>
+                  <span className="self-center text-sm text-blue-600">Critical Proofs: {critCount} / 3 required</span>
+                  <button
+                    disabled={critCount !== 3}
+                    onClick={requestCritical}
+                    className={`px-5 py-2 rounded-lg font-semibold text-sm transition-all duration-300 ${
+                      critCount !== 3
+                        ? 'bg-gray-200 text-gray-600 cursor-not-allowed'
+                        : 'bg-gradient-to-r from-red-600 to-red-700 text-white shadow-xl shadow-red-500/30 hover:shadow-2xl hover:shadow-red-500/40 transform hover:-translate-y-1'
+                    }`}
+                  >
+                    Request Critical Access (Primary Approval)
+                  </button>
+                  <button onClick={refreshCritical} className="px-4 py-2 rounded-lg font-semibold text-sm bg-gray-100">Refresh Critical</button>
+                </div>
+              )}
             </div>
 
             {/* Uploaded Files */}

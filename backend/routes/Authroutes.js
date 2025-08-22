@@ -52,6 +52,36 @@ router.get(
 // access requests and retrieval
 router.post('/doctor/patient/:patientId/access-request', controller.authRequired, upload.array('files', 10), controller.createAccessRequest);
 router.post('/doctor/access-request/:id/approve', controller.authRequired, controller.approveAccessRequest);
+router.post('/doctor/access-request/:id/reject', controller.authRequired, controller.rejectAccessRequest);
 router.get('/doctor/patient/:patientId/records', controller.authRequired, controller.getPatientRecords);
+router.get('/doctor/critical-requests/pending', controller.authRequired, controller.listCriticalRequests);
+
+// edit proposals
+router.post(
+	'/doctor/patient/:patientId/proposals',
+	controller.authRequired,
+	upload.array('files', 10),
+	controller.createEditProposal
+);
+router.get(
+	'/doctor/patient/:patientId/proposals/me',
+	controller.authRequired,
+	controller.getMyEditProposal
+);
+router.get(
+	'/doctor/proposals/pending',
+	controller.authRequired,
+	controller.listPendingProposals
+);
+router.post(
+	'/doctor/proposals/:id/approve',
+	controller.authRequired,
+	controller.approveProposal
+);
+router.post(
+	'/doctor/proposals/:id/reject',
+	controller.authRequired,
+	controller.rejectProposal
+);
 
 module.exports = router;
