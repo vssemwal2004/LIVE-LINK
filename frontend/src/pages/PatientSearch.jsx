@@ -13,10 +13,13 @@ export default function PatientSearch() {
   const [viewTier, setViewTier] = useState(null); // 'early' | 'emergency' | 'critical' | null
   const [isPrimary, setIsPrimary] = useState(false);
   const [activeTab, setActiveTab] = useState(null); // null | 'emergency' | 'critical'
+  const [emergencyUnlocked, setEmergencyUnlocked] = useState(false); // ephemeral: only true after uploading 3 docs this session
+  const [criticalUnlocked, setCriticalUnlocked] = useState(false); // ephemeral: only true after primary approval is observed in this session
   const navigate = useNavigate();
   const addFileInputRef = useRef(null);
   const animationRef = useRef(null);
   const [isAnimating, setIsAnimating] = useState(true);
+  const criticalPollTokenRef = useRef(0);
 
   const token = localStorage.getItem('token');
 
@@ -76,22 +79,47 @@ export default function PatientSearch() {
     }
   };
 
-  const getRecords = async (tier) => {
+  const getRecords = async (tier, opts = {}) => {
     if (!patient) return;
+    const force = opts && opts.force === true;
+    // Frontend security: only allow showing emergency-tier records if doctor has uploaded 3 docs in this browser session
+    if (tier === 'emergency' && !emergencyUnlocked && !force) {
+      setToast({ type: 'error', message: 'Upload at least 3 documents to view emergency records in this session' });
+      // ensure emergency records are hidden
+      setRecords([]);
+      setViewTier(null);
+      return;
+    }
+    // Frontend security: critical-tier should only be visible to primary doctors or after the primary approved and the doctor observed the approval in this session
+    if (tier === 'critical' && !isPrimary && !criticalUnlocked && !force) {
+      setToast({ type: 'error', message: 'Critical records require approval by the patient\'s primary doctor' });
+      setRecords([]);
+      setViewTier(null);
+      return;
+    }
     try {
       const r = await fetch(`http://localhost:5000/api/auth/doctor/patient/${patient.id}/records?tier=${tier}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await r.json();
+      // Debug: surface server responses for troubleshooting approval flows
+      console.debug('[PatientSearch] GET records', { tier, status: r.status, body: data });
       if (r.ok) {
         setRecords(data.records || []);
         setViewTier(tier);
+        // If we successfully retrieved critical records as a non-primary, mark ephemeral unlock so they remain visible until navigation/refresh
+        if (tier === 'critical' && !isPrimary) {
+          if (Array.isArray(data.records) && data.records.length > 0) setCriticalUnlocked(true);
+        }
         setToast({ type: 'success', message: `${tier.charAt(0).toUpperCase() + tier.slice(1)} access records loaded` });
+        return Array.isArray(data.records) && data.records.length > 0;
       } else {
         setToast({ type: 'error', message: data.message || `Failed to load ${tier} records` });
+        return false;
       }
     } catch (e) {
       setToast({ type: 'error', message: 'Server error, please try again' });
+      return false;
     }
   };
 
@@ -110,8 +138,12 @@ export default function PatientSearch() {
       });
       const d = await r.json();
       if (!r.ok) return setToast({ type: 'error', message: d.message || 'Failed to request emergency access' });
-      setToast({ type: 'success', message: 'Emergency access granted for 10 minutes' });
-      getRecords('emergency');
+  // mark emergency as unlocked for this session only
+  setEmergencyUnlocked(true);
+  setToast({ type: 'success', message: 'Emergency access granted for 10 minutes (this session)' });
+  // fetch emergency records now that frontend allows viewing
+  // bypass ephemeral check because server already approved; avoid race with setState
+  await getRecords('emergency', { force: true });
     } catch (e) {
       setToast({ type: 'error', message: 'Server error, please try again' });
     }
@@ -124,14 +156,48 @@ export default function PatientSearch() {
       const fd = new FormData();
       fd.append('tier', 'critical');
       critFiles.forEach((f) => fd.append('files', f));
-      const r = await fetch(`http://localhost:5000/api/auth/doctor/patient/${patient.id}/access-request`, {
+  const r = await fetch(`http://localhost:5000/api/auth/doctor/patient/${patient.id}/access-request`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
         body: fd,
       });
       const d = await r.json();
-      if (!r.ok) return setToast({ type: 'error', message: d.message || 'Failed to request critical access' });
-      setToast({ type: 'success', message: 'Critical access request sent to primary doctor for approval' });
+  // Debug: show create access-request response
+  console.debug('[PatientSearch] POST create access-request', { status: r.status, body: d });
+  if (!r.ok) return setToast({ type: 'error', message: d.message || 'Failed to request critical access' });
+      // Inspect returned request status. If already approved, fetch records.
+      setToast({ type: 'success', message: 'Critical access request created — waiting for primary doctor approval' });
+      const reqStatus = d?.request?.status;
+      // Cancel previous polls by bumping token and create a new one for this request
+      const myToken = (criticalPollTokenRef.current += 1);
+
+      // If server already marked this request as approved (rare), fetch once and return
+      if (reqStatus === 'approved') {
+        const gotNow = await getRecords('critical', { force: true });
+        if (gotNow) {
+          setToast({ type: 'success', message: 'Critical access approved — records loaded (this session)' });
+          return;
+        }
+      }
+
+      // Otherwise poll regularly for approval (ephemeral only). We'll check records periodically.
+      const maxAttempts = 24; // ~2 minutes at 5s interval
+      let got = false;
+      for (let i = 0; i < maxAttempts; i++) {
+        // stop if user navigated/initiated another poll
+        if (criticalPollTokenRef.current !== myToken) break;
+        await new Promise((res) => setTimeout(res, 5000));
+        if (criticalPollTokenRef.current !== myToken) break;
+        // Try to load critical records; server will only return them if approved
+        got = await getRecords('critical', { force: true });
+        if (got) {
+          setToast({ type: 'success', message: 'Critical access approved — records loaded (this session)' });
+          break;
+        }
+      }
+      if (!got) {
+        setToast({ type: 'info', message: 'Still pending approval from primary doctor. We will keep checking for a short time.' });
+      }
     } catch (e) {
       setToast({ type: 'error', message: 'Server error, please try again' });
     }
@@ -314,8 +380,13 @@ export default function PatientSearch() {
               <div className="flex flex-wrap gap-4">
                 <button
                   onClick={() => {
-                    getRecords('early');
+                    // switching away clears any ephemeral emergency unlock
+                    setEmergencyUnlocked(false);
+                    // also clear any ephemeral critical unlock and cancel polling
+                    setCriticalUnlocked(false);
+                    criticalPollTokenRef.current += 1;
                     setActiveTab(null); // Hide document upload section
+                    getRecords('early');
                   }}
                   className={`px-6 py-3 rounded-xl font-semibold shadow-lg transition-all duration-300 flex items-center space-x-2 ${
                     viewTier === 'early'
@@ -331,8 +402,18 @@ export default function PatientSearch() {
                 
                 <button
                   onClick={() => {
-                    getRecords('emergency');
+                    // Show upload UI first. Only fetch emergency records if already unlocked this session.
+                    // switching to emergency should hide any critical records and stop polling
+                    setCriticalUnlocked(false);
+                    criticalPollTokenRef.current += 1;
                     setActiveTab('emergency'); // Show emergency document upload
+                    if (emergencyUnlocked) {
+                      getRecords('emergency');
+                    } else {
+                      // Ensure no emergency records are visible until user requests and unlocks
+                      setRecords([]);
+                      setViewTier(null);
+                    }
                   }}
                   className={`px-6 py-3 rounded-xl font-semibold shadow-lg transition-all duration-300 flex items-center space-x-2 ${
                     viewTier === 'emergency'
@@ -348,8 +429,10 @@ export default function PatientSearch() {
                 
                 <button
                   onClick={() => {
-                    getRecords('critical');
+                    // switching away clears ephemeral emergency unlock
+                    setEmergencyUnlocked(false);
                     setActiveTab('critical'); // Show critical document upload
+                    getRecords('critical');
                   }}
                   className={`px-6 py-3 rounded-xl font-semibold shadow-lg transition-all duration-300 flex items-center space-x-2 ${
                     viewTier === 'critical'
@@ -373,23 +456,7 @@ export default function PatientSearch() {
                 {/* Emergency Documents */}
                 {activeTab === 'emergency' && (
                   <div className="bg-blue-50/50 p-4 rounded-lg">
-                    <div
-                      className="border-2 border-dashed border-blue-300 p-6 mb-4 rounded-lg text-center"
-                      onDrop={(e) => handleDrop(e, 'emergency')}
-                      onDragOver={handleDragOver}
-                    >
-                      <p className="text-blue-600 text-sm mb-2">Drag and drop files here (JPEG, PNG, PDF)</p>
-                      <label className="bg-blue-600 text-white py-2 px-4 rounded-lg text-xs cursor-pointer hover:bg-blue-700 transition-colors">
-                        <input
-                          type="file"
-                          accept="image/jpeg,image/png,application/pdf"
-                          className="hidden"
-                          onChange={(e) => handleAddDocument(e, 'emergency')}
-                          multiple
-                        />
-                        Or click to upload
-                      </label>
-                    </div>
+                    
                     
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
                       <div className="bg-white p-4 rounded-lg shadow-sm border border-blue-100">
@@ -499,17 +566,6 @@ export default function PatientSearch() {
                       onDrop={(e) => handleDrop(e, 'critical')}
                       onDragOver={handleDragOver}
                     >
-                      <p className="text-red-600 text-sm mb-2">Drag and drop files here (JPEG, PNG, PDF)</p>
-                      <label className="bg-red-600 text-white py-2 px-4 rounded-lg text-xs cursor-pointer hover:bg-red-700 transition-colors">
-                        <input
-                          type="file"
-                          accept="image/jpeg,image/png,application/pdf"
-                          className="hidden"
-                          onChange={(e) => handleAddDocument(e, 'critical')}
-                          multiple
-                        />
-                        Or click to upload
-                      </label>
                     </div>
                     
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
