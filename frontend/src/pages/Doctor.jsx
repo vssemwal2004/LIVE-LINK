@@ -10,7 +10,17 @@ export default function Doctor() {
   const [toast, setToast] = useState({ type: '', message: '' })
   const [section, setSection] = useState({ label: '', data: '' })
   const [existing, setExisting] = useState(null)
+  const [sectionEdits, setSectionEdits] = useState({}) // id -> { label, data, files }
   const navigate = useNavigate()
+
+  const formatDataText = (data) => {
+    if (data == null) return ''
+    if (typeof data === 'string') return data
+    if (typeof data === 'object' && typeof data.text === 'string') return data.text
+    if (Array.isArray(data)) return data.map((x)=> formatDataText(x)).join(', ')
+    if (typeof data === 'object') return Object.entries(data).map(([k,v])=> `${k}: ${formatDataText(v)}`).join('\n')
+    return String(data)
+  }
 
   useEffect(() => {
     const token = localStorage.getItem('token')
@@ -54,7 +64,7 @@ export default function Doctor() {
                 </div>
                 <button
                   onClick={async () => {
-                    setSelectedPatient(p)
+          setSelectedPatient(p)
                     // load existing record for default tier
                     try{
                       const token = localStorage.getItem('token')
@@ -63,9 +73,14 @@ export default function Doctor() {
                       if(r.ok && d.record){
                         setExisting(d.record)
                         setForm(d.record.data || {})
+            // initialize section edits
+                        const edits = {}
+                        ;(d.record.sections||[]).forEach((s)=>{ edits[s.id] = { label: s.label || '', data: (s?.data && typeof s.data.text==='string') ? s.data.text : JSON.stringify(s.data ?? {}, null, 2), files: [] } })
+            setSectionEdits(edits)
                       } else {
                         setExisting(null)
                         setForm({})
+            setSectionEdits({})
                       }
                     } catch{}
                   }}
@@ -95,7 +110,17 @@ export default function Doctor() {
                   const token = localStorage.getItem('token')
                   const r = await fetch(`http://localhost:5000/api/auth/doctor/patient/${selectedPatient._id}/record/${t}`, { headers: { Authorization: `Bearer ${token}` } })
                   const d = await r.json()
-                  if(r.ok && d.record){ setExisting(d.record); setForm(d.record.data || {}) } else { setExisting(null); setForm({}) }
+                  if(r.ok && d.record){
+                    setExisting(d.record)
+                    setForm(d.record.data || {})
+                    const edits = {}
+                    ;(d.record.sections||[]).forEach((s)=>{ edits[s.id] = { label: s.label || '', data: (s?.data && typeof s.data.text==='string') ? s.data.text : JSON.stringify(s.data ?? {}, null, 2), files: [] } })
+                    setSectionEdits(edits)
+                  } else {
+                    setExisting(null)
+                    setForm({})
+                    setSectionEdits({})
+                  }
                 }catch{}
               }} className={`px-3 py-1 rounded ${tier===t?'bg-gray-900 text-white':'bg-gray-100'}`}>{t.charAt(0).toUpperCase()+t.slice(1)} Access</button>
             ))}
@@ -211,6 +236,92 @@ export default function Doctor() {
               Add Box
             </button>
           </div>
+
+          {/* Existing sections list + edit */}
+          {existing && Array.isArray(existing.sections) && existing.sections.length>0 && (
+            <div className="mt-6 border-t pt-4">
+              <h4 className="font-semibold mb-2">Existing Sections</h4>
+              <ul className="space-y-4">
+                {existing.sections.map((s)=>{
+                  const edit = sectionEdits[s.id] || { label: s.label||'', data: JSON.stringify(s.data ?? {}, null, 2), files: [] }
+                  return (
+                    <li key={s.id} className="border rounded p-3">
+                      <div className="text-sm text-gray-600 mb-2">{new Date(s.updatedAt||s.createdAt).toLocaleString()}</div>
+                      <div className="grid md:grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-sm font-medium">Label</label>
+                          <input className="w-full border px-3 py-2 rounded" value={edit.label}
+                                 onChange={(e)=> setSectionEdits((p)=>({ ...p, [s.id]: { ...edit, label: e.target.value } })) } />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium">Data (JSON or text)</label>
+                          <textarea rows={4} className="w-full border px-3 py-2 rounded" value={edit.data}
+                                    onChange={(e)=> setSectionEdits((p)=>({ ...p, [s.id]: { ...edit, data: e.target.value } })) } />
+                        </div>
+                      </div>
+                      {Array.isArray(s.files) && s.files.length>0 && (
+                        <div className="mt-2 space-y-1">
+                          {s.files.map((f, idx)=> (
+                            <div key={idx} className="text-sm">
+                              {f.url ? (
+                                <a className="text-blue-600 underline" href={f.url} target="_blank" rel="noreferrer">Download {f.name}</a>
+                              ) : (
+                                <a className="text-blue-600 underline" href={`data:${f.mime};base64,${f.dataBase64}`} download={f.name}>Download {f.name}</a>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      <div className="mt-2">
+                        <label className="block text-sm font-medium">Replace files (optional)</label>
+                        <input type="file" multiple accept="image/jpeg,image/png,application/pdf" onChange={(e)=>{
+                          const fs = Array.from(e.target.files||[])
+                          setSectionEdits((p)=>({ ...p, [s.id]: { ...edit, files: fs } }))
+                        }} />
+                      </div>
+                      <div className="mt-2">
+                        <button className="bg-green-600 text-white px-3 py-1 rounded" onClick={async ()=>{
+                          try{
+                            setToast({})
+                            const fd = new FormData()
+                            fd.append('label', edit.label)
+                            fd.append('data', edit.data)
+                            ;(edit.files||[]).forEach((f)=> fd.append('files', f))
+                            const token = localStorage.getItem('token')
+                            const r = await fetch(`http://localhost:5000/api/auth/doctor/patient/${selectedPatient._id}/records/${tier}/sections/${s.id}`, {
+                              method: 'PUT',
+                              headers: { Authorization: `Bearer ${token}` },
+                              body: fd
+                            })
+                            const d = await r.json()
+                            if(!r.ok) return setToast({ type:'error', message: d.message || 'Failed to update section' })
+                            // refresh
+                            const rr = await fetch(`http://localhost:5000/api/auth/doctor/patient/${selectedPatient._id}/record/${tier}`, { headers: { Authorization: `Bearer ${token}` } })
+                            const dd = await rr.json()
+                            if(rr.ok && dd.record){
+                              setExisting(dd.record)
+                              const edits2 = {}
+                              ;(dd.record.sections||[]).forEach((sx)=>{ edits2[sx.id] = { label: sx.label || '', data: (sx?.data && typeof sx.data.text==='string') ? sx.data.text : JSON.stringify(sx.data ?? {}, null, 2), files: [] } })
+                              setSectionEdits(edits2)
+                            }
+                            setToast({ type:'success', message:'Section updated' })
+                          }catch{
+                            setToast({ type:'error', message:'Server error' })
+                          }
+                        }}>Save Changes</button>
+                      </div>
+                      <div className="mt-2">
+                        <details>
+                          <summary className="cursor-pointer text-sm text-gray-700">Current data preview</summary>
+                          <pre className="whitespace-pre-wrap text-xs mt-1">{formatDataText(s.data)}</pre>
+                        </details>
+                      </div>
+                    </li>
+                  )
+                })}
+              </ul>
+            </div>
+          )}
         </div>
       )}
     </div>

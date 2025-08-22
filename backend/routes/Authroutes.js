@@ -37,6 +37,12 @@ router.post(
 	upload.array('files', 10),
 	controller.addRecordSection
 );
+router.put(
+	'/doctor/patient/:patientId/records/:tier/sections/:sectionId',
+	controller.authRequired,
+	upload.array('files', 10),
+	controller.updateRecordSection
+);
 router.get(
 	'/doctor/patient/:patientId/record/:tier',
 	controller.authRequired,

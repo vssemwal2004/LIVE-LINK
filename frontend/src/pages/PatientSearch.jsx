@@ -10,6 +10,14 @@ export default function PatientSearch() {
   const [count, setCount] = useState(0)
   const [viewTier, setViewTier] = useState(null) // 'early' | 'emergency' | null
   const navigate = useNavigate()
+  const formatDataText = (data) => {
+    if (data == null) return ''
+    if (typeof data === 'string') return data
+    if (typeof data === 'object' && typeof data.text === 'string') return data.text
+    if (Array.isArray(data)) return data.map((x)=> formatDataText(x)).join(', ')
+    if (typeof data === 'object') return Object.entries(data).map(([k,v])=> `${k}: ${formatDataText(v)}`).join('\n')
+    return String(data)
+  }
 
   const token = localStorage.getItem('token')
   const addFileInputRef = useRef(null)
@@ -127,7 +135,7 @@ export default function PatientSearch() {
         {(viewTier ? records.filter((r)=> r.accessTier===viewTier) : records).map((r)=> (
                   <li key={r.id} className="border rounded p-2">
                     <div className="text-sm text-gray-600">Tier: {r.accessTier} • {new Date(r.createdAt).toLocaleString()}</div>
-                    <pre className="whitespace-pre-wrap text-sm mt-2">{JSON.stringify(r.data, null, 2)}</pre>
+                    <pre className="whitespace-pre-wrap text-sm mt-2">{formatDataText(r.data)}</pre>
                     {Array.isArray(r.files) && r.files.length>0 && (
                       <div className="mt-2 space-y-1">
                         {r.files.map((f,idx)=> (
@@ -139,6 +147,32 @@ export default function PatientSearch() {
                             )}
                           </div>
                         ))}
+                      </div>
+                    )}
+                    {Array.isArray(r.sections) && r.sections.length>0 && (
+                      <div className="mt-3 border-t pt-2">
+                        <div className="font-medium">Sections</div>
+                        <ul className="space-y-2">
+                          {r.sections.map((s)=> (
+                            <li key={s.id} className="border rounded p-2">
+                              <div className="text-sm text-gray-600">{s.label} • {new Date(s.updatedAt||s.createdAt).toLocaleString()}</div>
+                              <pre className="whitespace-pre-wrap text-xs mt-1">{formatDataText(s.data)}</pre>
+                              {Array.isArray(s.files) && s.files.length>0 && (
+                                <div className="mt-1 space-y-1">
+                                  {s.files.map((f,idx)=> (
+                                    <div key={idx} className="text-xs">
+                                      {f.url ? (
+                                        <a className="text-blue-600 underline" href={f.url} target="_blank" rel="noreferrer">Download {f.name}</a>
+                                      ) : (
+                                        <a className="text-blue-600 underline" href={`data:${f.mime};base64,${f.dataBase64}`} download={f.name}>Download {f.name}</a>
+                                      )}
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </li>
+                          ))}
+                        </ul>
                       </div>
                     )}
                   </li>
