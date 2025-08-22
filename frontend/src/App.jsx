@@ -10,6 +10,7 @@ import PatientSearch from './pages/PatientSearch'
 import PatientEdit from './pages/PatientEdit'
 import Proposals from './pages/Proposals'
 import CriticalRequests from './pages/CriticalRequests'
+import PatientRecords from './pages/PatientRecords'
 
 function App() {
   return (
@@ -19,6 +20,7 @@ function App() {
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
           <Route path="/patient" element={<Patient />} />
+          <Route path="/patient/records" element={<PatientRecords />} />
           <Route path="/doctor" element={<Doctor />} />
           <Route path="/doctor/patient-search" element={<PatientSearch />} />
           <Route path="/doctor/patient-edit" element={<PatientEdit />} />

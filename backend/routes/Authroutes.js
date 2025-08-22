@@ -71,8 +71,7 @@ router.get(
 	controller.authRequired,
 	controller.getMyEditProposal
 );
-router.get(
-	'/doctor/proposals/pending',
+router.get('/doctor/proposals/pending',
 	controller.authRequired,
 	controller.listPendingProposals
 );
@@ -86,5 +85,8 @@ router.post(
 	controller.authRequired,
 	controller.rejectProposal
 );
+
+// Patient routes for viewing their own records
+router.get('/patient/my-records', controller.authRequired, controller.getOwnPatientRecords);
 
 module.exports = router;
