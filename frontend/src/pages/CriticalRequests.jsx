@@ -21,6 +21,15 @@ export default function CriticalRequests() {
 
   useEffect(()=>{ if(!token) navigate('/login'); else load() }, [])
 
+  // Auto-refresh pending requests every 5 seconds so new critical requests show up without manual refresh
+  useEffect(() => {
+    if (!token) return;
+    const id = setInterval(() => {
+      load();
+    }, 5000);
+    return () => clearInterval(id);
+  }, [token]);
+
   const act = async (id, action) => {
     try{
       setToast({})

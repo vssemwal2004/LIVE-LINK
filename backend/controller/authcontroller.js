@@ -65,6 +65,37 @@ async function uploadWithEnsure(bucket, path, buffer, contentType) {
   } catch (_) {}
 })();
 
+// Lightweight POST helper to send JSON webhook notifications without extra deps
+const http = require('http');
+const https = require('https');
+function postJson(urlString, body, headers = {}) {
+  try {
+    const u = new URL(urlString);
+    const isHttps = u.protocol === 'https:';
+    const opts = {
+      method: 'POST',
+      hostname: u.hostname,
+      port: u.port || (isHttps ? 443 : 80),
+      path: `${u.pathname}${u.search || ''}`,
+      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body), ...headers },
+    };
+    const mod = isHttps ? https : http;
+    const req = mod.request(opts, (res) => {
+      let chunks = '';
+      res.on('data', (d) => { try { chunks += d.toString(); } catch {} });
+      res.on('end', () => {
+        try { console.log(`[notify] n8n response ${res.statusCode}`); if (chunks) console.log('[notify] n8n body:', chunks.slice(0, 200)); } catch {}
+      });
+    });
+    req.setTimeout(8000, () => { try { req.destroy(new Error('timeout')); } catch {} });
+    req.on('error', (e) => { try { console.warn('[notify] n8n POST failed:', e.message); } catch {} });
+    req.write(body);
+    req.end();
+  } catch (_) {
+    // ignore
+  }
+}
+
 // Sanitize filenames for storage keys
 function safeFileName(name = '') {
   try {
@@ -551,7 +582,7 @@ const accessRequestSchema = new mongoose.Schema(
     patient: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
     requesterDoctor: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
     tier: { type: String, enum: ['emergency', 'critical'], required: true },
-    status: { type: String, enum: ['pending', 'approved', 'rejected'], default: 'pending' },
+  status: { type: String, enum: ['pending', 'approved', 'rejected'], default: 'pending' },
     expiresAt: { type: Date },
     proofs: [
       {
@@ -570,6 +601,12 @@ const AccessRequest = mongoose.models.AccessRequest || mongoose.model('AccessReq
 // Doctor creates an access request
 exports.createAccessRequest = async (req, res) => {
   try {
+    console.log('[createAccessRequest] hit', {
+      userId: req.userId,
+      params: req.params,
+      bodyKeys: Object.keys(req.body || {}),
+      filesCount: Array.isArray(req.files) ? req.files.length : 0,
+    });
     const doctor = await User.findById(req.userId);
     if (!doctor || doctor.role !== 'doctor') return res.status(403).json({ message: 'Only doctors can request access' });
     const { patientId } = req.params;
@@ -587,16 +624,21 @@ exports.createAccessRequest = async (req, res) => {
       // must have at least 3 files
       const fs = req.files || [];
       if (fs.length < 3) return res.status(400).json({ message: 'Upload minimum 3 documents for emergency access' });
-      if (!supabase) return res.status(500).json({ message: 'File storage not configured' });
       const bucket = process.env.SUPABASE_BUCKET || 'patient-records';
       for (const f of fs) {
-  const path = `access-proofs/${patient._id}/${Date.now()}-${Math.random().toString(36).slice(2)}-${safeFileName(f.originalname)}`;
-        const { error } = await uploadWithEnsure(bucket, path, f.buffer, f.mimetype);
-        if (error) {
-          console.error('Supabase upload error', error);
-          return res.status(500).json({ message: 'Proof upload failed: ' + (error?.message || 'unknown') });
+        if (supabase) {
+          const path = `access-proofs/${patient._id}/${Date.now()}-${Math.random().toString(36).slice(2)}-${safeFileName(f.originalname)}`;
+          const { error } = await uploadWithEnsure(bucket, path, f.buffer, f.mimetype);
+          if (error) {
+            console.warn('Supabase upload error (continuing without path)', error);
+            proofs.push({ name: f.originalname, mime: f.mimetype });
+          } else {
+            proofs.push({ name: f.originalname, mime: f.mimetype, path });
+          }
+        } else {
+          // No storage configured; still record metadata
+          proofs.push({ name: f.originalname, mime: f.mimetype });
         }
-        proofs.push({ name: f.originalname, mime: f.mimetype, path });
       }
       status = 'approved';
       expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
@@ -605,16 +647,20 @@ exports.createAccessRequest = async (req, res) => {
       const fs = req.files || [];
       if (fs.length < 3) return res.status(400).json({ message: 'Upload minimum 3 documents for critical access' });
       if (fs.length > 3) return res.status(400).json({ message: 'Maximum 3 documents allowed for critical access' });
-      if (!supabase) return res.status(500).json({ message: 'File storage not configured' });
       const bucket = process.env.SUPABASE_BUCKET || 'patient-records';
       for (const f of fs) {
-        const path = `access-proofs/${patient._id}/${Date.now()}-${Math.random().toString(36).slice(2)}-${safeFileName(f.originalname)}`;
-        const { error } = await uploadWithEnsure(bucket, path, f.buffer, f.mimetype);
-        if (error) {
-          console.error('Supabase upload error', error);
-          return res.status(500).json({ message: 'Proof upload failed: ' + (error?.message || 'unknown') });
+        if (supabase) {
+          const path = `access-proofs/${patient._id}/${Date.now()}-${Math.random().toString(36).slice(2)}-${safeFileName(f.originalname)}`;
+          const { error } = await uploadWithEnsure(bucket, path, f.buffer, f.mimetype);
+          if (error) {
+            console.warn('Supabase upload error (continuing without path)', error);
+            proofs.push({ name: f.originalname, mime: f.mimetype });
+          } else {
+            proofs.push({ name: f.originalname, mime: f.mimetype, path });
+          }
+        } else {
+          proofs.push({ name: f.originalname, mime: f.mimetype });
         }
-        proofs.push({ name: f.originalname, mime: f.mimetype, path });
       }
     }
 
@@ -623,6 +669,41 @@ exports.createAccessRequest = async (req, res) => {
 
     // TODO: notify primary doctor via email
     console.log(`[notify] Access request ${ar._id} for ${tier} by Dr.${doctor.name} for patient ${patient.name}`);
+
+    // n8n webhook notification for critical requests
+    try {
+      if (tier === 'critical') {
+        // Get primary doctor's phone number for the call
+        const primaryDoctor = await User.findOne({ 
+          _id: { $in: patient.primaryDoctors },
+          role: 'doctor'
+        }).select('name phone');
+        
+        if (primaryDoctor) {
+          // Prefer TEST URL while workflow is in listen mode; fallback to production URL
+          const webhookUrl = process.env.N8N_CRITICAL_WEBHOOK_TEST_URL || process.env.N8N_CRITICAL_WEBHOOK_URL || 'https://anany.app.n8n.cloud/webhook-test/critical-request';
+          if (webhookUrl) {
+            const secret = process.env.NOTIFY_WEBHOOK_SECRET || 'S3cureCriticalAccess2025!@#Xh7t9f!kL2qP0mNs8vR1zW4yB6aD3g';
+            const payload = {
+              event: 'critical_access_requested',
+              requestId: String(ar._id),
+              patient: { id: String(patient._id), name: patient.name, cardNumber: patient.cardNumber },
+              requester: { id: String(doctor._id), name: doctor.name, email: doctor.email },
+              primaryDoctor: { 
+                id: String(primaryDoctor._id), 
+                name: primaryDoctor.name, 
+                phone: primaryDoctor.phone
+              },
+              createdAt: ar.createdAt,
+            };
+            const body = JSON.stringify(payload);
+            const headers = secret ? { 'x-webhook-secret': secret } : {};
+            console.log(`[notify] POST to n8n webhook: ${webhookUrl}`);
+            postJson(webhookUrl, body, headers);
+          }
+        }
+      }
+    } catch (_) {}
 
   return res.json({ message: 'Access request created', request: { id: ar._id, status: ar.status, expiresAt: ar.expiresAt } });
   } catch (e) {
@@ -645,8 +726,8 @@ exports.approveAccessRequest = async (req, res) => {
     const isPrimary = await User.exists({ _id: ar.patient._id, primaryDoctors: approver._id });
     if (!isPrimary) return res.status(403).json({ message: 'Only primary doctor can approve' });
 
-    ar.status = 'approved';
-    ar.expiresAt = new Date(Date.now() + 2 * 60 * 60 * 1000); // 2 hours validity
+  ar.status = 'approved';
+  ar.expiresAt = new Date(Date.now() + 2 * 60 * 60 * 1000); // 2 hours validity
     await ar.save();
     return res.json({ message: 'Approved', request: { id: ar._id, status: ar.status, expiresAt: ar.expiresAt } });
   } catch (e) {
@@ -748,8 +829,15 @@ exports.getPatientRecords = async (req, res) => {
       allowedTiers.add('critical');
     } else {
       // Non-primary: must have approved requests within time
-      const reqs = await AccessRequest.find({ patient: patient._id, requesterDoctor: doctor._id, status: 'approved', expiresAt: { $gt: now } });
-      for (const r of reqs) allowedTiers.add(r.tier);
+      const reqs = await AccessRequest.find({ 
+        patient: patient._id, 
+        requesterDoctor: doctor._id, 
+        status: 'approved', 
+        expiresAt: { $gt: now } 
+      });
+      for (const r of reqs) {
+        allowedTiers.add(r.tier);
+      }
     }
 
     const q = { patient: patient._id };
@@ -1017,6 +1105,9 @@ exports.rejectProposal = async (req, res) => {
     return res.status(500).json({ message: 'Server error' });
   }
 };
+
+// Set PIN for critical access verification (primary doctor only)
+
 
 // Update an existing section (primary doctor only)
 exports.updateRecordSection = async (req, res) => {

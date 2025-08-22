@@ -56,6 +56,9 @@ router.post('/doctor/access-request/:id/reject', controller.authRequired, contro
 router.get('/doctor/patient/:patientId/records', controller.authRequired, controller.getPatientRecords);
 router.get('/doctor/critical-requests/pending', controller.authRequired, controller.listCriticalRequests);
 
+// PIN management for critical access
+// PIN routes removed: approval now solely controlled by primary doctor action
+
 // edit proposals
 router.post(
 	'/doctor/patient/:patientId/proposals',

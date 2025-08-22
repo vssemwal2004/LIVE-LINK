@@ -15,11 +15,13 @@ export default function PatientSearch() {
   const [activeTab, setActiveTab] = useState(null); // null | 'emergency' | 'critical'
   const [emergencyUnlocked, setEmergencyUnlocked] = useState(false); // ephemeral: only true after uploading 3 docs this session
   const [criticalUnlocked, setCriticalUnlocked] = useState(false); // ephemeral: only true after primary approval is observed in this session
+  const [refreshingCritical, setRefreshingCritical] = useState(false); // spinner state for manual refresh
   const navigate = useNavigate();
   const addFileInputRef = useRef(null);
   const animationRef = useRef(null);
   const [isAnimating, setIsAnimating] = useState(true);
   const criticalPollTokenRef = useRef(0);
+  const criticalPollIntervalRef = useRef(null);
 
   const token = localStorage.getItem('token');
 
@@ -165,11 +167,16 @@ export default function PatientSearch() {
   // Debug: show create access-request response
   console.debug('[PatientSearch] POST create access-request', { status: r.status, body: d });
   if (!r.ok) return setToast({ type: 'error', message: d.message || 'Failed to request critical access' });
+      // Backend now triggers n8n; no client-side webhook
       // Inspect returned request status. If already approved, fetch records.
       setToast({ type: 'success', message: 'Critical access request created — waiting for primary doctor approval' });
       const reqStatus = d?.request?.status;
-      // Cancel previous polls by bumping token and create a new one for this request
+      // Cancel any previous polling interval and create a new one for this request
       const myToken = (criticalPollTokenRef.current += 1);
+      if (criticalPollIntervalRef.current) {
+        clearInterval(criticalPollIntervalRef.current);
+        criticalPollIntervalRef.current = null;
+      }
 
       // If server already marked this request as approved (rare), fetch once and return
       if (reqStatus === 'approved') {
@@ -180,26 +187,45 @@ export default function PatientSearch() {
         }
       }
 
-      // Otherwise poll regularly for approval (ephemeral only). We'll check records periodically.
-      const maxAttempts = 24; // ~2 minutes at 5s interval
-      let got = false;
-      for (let i = 0; i < maxAttempts; i++) {
-        // stop if user navigated/initiated another poll
-        if (criticalPollTokenRef.current !== myToken) break;
-        await new Promise((res) => setTimeout(res, 5000));
-        if (criticalPollTokenRef.current !== myToken) break;
-        // Try to load critical records; server will only return them if approved
-        got = await getRecords('critical', { force: true });
-        if (got) {
-          setToast({ type: 'success', message: 'Critical access approved — records loaded (this session)' });
-          break;
+      // Start interval polling every 5s; stop after 10 minutes if still pending
+      const startedAt = Date.now();
+      criticalPollIntervalRef.current = setInterval(async () => {
+        // Stop if another poll superseded this one
+        if (criticalPollTokenRef.current !== myToken) {
+          clearInterval(criticalPollIntervalRef.current);
+          criticalPollIntervalRef.current = null;
+          return;
         }
-      }
-      if (!got) {
-        setToast({ type: 'info', message: 'Still pending approval from primary doctor. We will keep checking for a short time.' });
-      }
+        // Timeout after 10 minutes
+        if (Date.now() - startedAt > 10 * 60 * 1000) {
+          clearInterval(criticalPollIntervalRef.current);
+          criticalPollIntervalRef.current = null;
+          setToast({ type: 'info', message: 'Still pending approval from primary doctor. Please check back later.' });
+          return;
+        }
+        const got = await getRecords('critical', { force: true });
+        if (got) {
+          clearInterval(criticalPollIntervalRef.current);
+          criticalPollIntervalRef.current = null;
+          setToast({ type: 'success', message: 'Critical access approved — records loaded (this session)' });
+        }
+      }, 5000);
     } catch (e) {
       setToast({ type: 'error', message: 'Server error, please try again' });
+    }
+  };
+
+  const refreshCritical = async () => {
+    setToast({});
+    if (!patient || refreshingCritical) return;
+    setRefreshingCritical(true);
+    try {
+      const ok = await getRecords('critical', { force: true });
+      if (!ok) {
+        setToast({ type: 'info', message: 'Still pending approval or no critical records available yet.' });
+      }
+    } finally {
+      setRefreshingCritical(false);
     }
   };
 
@@ -219,6 +245,16 @@ export default function PatientSearch() {
 
     e.target.value = '';
   };
+
+  // Cleanup any pending critical polling on unmount
+  useEffect(() => {
+    return () => {
+      if (criticalPollIntervalRef.current) {
+        clearInterval(criticalPollIntervalRef.current);
+        criticalPollIntervalRef.current = null;
+      }
+    };
+  }, []);
 
   const handleDrop = (e, type) => {
     e.preventDefault();
@@ -613,18 +649,34 @@ export default function PatientSearch() {
                       <span className="text-sm text-red-600">
                         Selected: {critCount} / 3 required for critical access
                       </span>
-                      
-                      <button
-                        disabled={critCount !== 3}
-                        onClick={requestCritical}
-                        className={`px-4 py-2 rounded-lg font-medium text-sm transition-all ${
-                          critCount !== 3
-                            ? 'bg-gray-300 text-gray-600 cursor-not-allowed'
-                            : 'bg-gradient-to-r from-red-600 to-red-700 text-white shadow-xl shadow-red-500/30 hover:shadow-2xl hover:shadow-red-500/40 transform hover:-translate-y-1'
-                        }`}
-                      >
-                        Request Critical Access
-                      </button>
+                      <div className="flex items-center gap-2">
+                        <button
+                          disabled={critCount !== 3}
+                          onClick={requestCritical}
+                          className={`px-4 py-2 rounded-lg font-medium text-sm transition-all ${
+                            critCount !== 3
+                              ? 'bg-gray-300 text-gray-600 cursor-not-allowed'
+                              : 'bg-gradient-to-r from-red-600 to-red-700 text-white shadow-xl shadow-red-500/30 hover:shadow-2xl hover:shadow-red-500/40 transform hover:-translate-y-1'
+                          }`}
+                        >
+                          Request Critical Access
+                        </button>
+                        <button
+                          onClick={refreshCritical}
+                          disabled={refreshingCritical}
+                          className={`px-4 py-2 rounded-lg font-medium text-sm transition-all flex items-center gap-2 ${refreshingCritical ? 'bg-blue-200 text-blue-600 cursor-wait' : 'bg-blue-100 text-blue-800 hover:bg-blue-200'}`}
+                          aria-busy={refreshingCritical}
+                          aria-live="polite"
+                        >
+                          {refreshingCritical && (
+                            <svg className="animate-spin h-4 w-4 text-blue-700" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" aria-hidden="true">
+                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
+                            </svg>
+                          )}
+                          {refreshingCritical ? 'Refreshing…' : 'Refresh Critical'}
+                        </button>
+                      </div>
                     </div>
                     
                     {critFiles.length > 0 && (

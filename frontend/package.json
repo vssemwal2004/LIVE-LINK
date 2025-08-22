@@ -16,7 +16,9 @@
     "tailwindcss": "^4.1.12"
   },
   "devDependencies": {
+    "@tailwindcss/postcss": "^4.1.12",
     "@vitejs/plugin-react": "^5.0.0",
+    "autoprefixer": "^10.4.21",
     "vite": "^7.1.2"
   }
 }
