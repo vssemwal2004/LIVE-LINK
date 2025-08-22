@@ -10,8 +10,9 @@ export default function PatientSearch() {
   const [count, setCount] = useState(0);
   const [critFiles, setCritFiles] = useState([]);
   const [critCount, setCritCount] = useState(0);
-  const [viewTier, setViewTier] = useState(null); // 'early' | 'emergency' | null
+  const [viewTier, setViewTier] = useState(null); // 'early' | 'emergency' | 'critical' | null
   const [isPrimary, setIsPrimary] = useState(false);
+  const [activeTab, setActiveTab] = useState(null); // null | 'emergency' | 'critical'
   const navigate = useNavigate();
   const addFileInputRef = useRef(null);
   const animationRef = useRef(null);
@@ -63,19 +64,32 @@ export default function PatientSearch() {
       const d = await r.json();
       if (!r.ok) return setToast({ type: 'error', message: d.message || 'Patient not found' });
       setPatient(d.patient);
-      // determine if current doctor is primary for this patient
-      try{
-        const meR = await fetch('http://localhost:5000/api/auth/me', { headers: { Authorization: `Bearer ${token}` } })
-        const meD = await meR.json()
-        const primaries = (meD?.user?.primaryPatients || [])
-        setIsPrimary(Array.isArray(primaries) && primaries.some(pp => pp._id === d.patient.id))
-      }catch{}
-      const r2 = await fetch(`http://localhost:5000/api/auth/doctor/patient/${d.patient.id}/records?tier=early`, {
+      try {
+        const meR = await fetch('http://localhost:5000/api/auth/me', { headers: { Authorization: `Bearer ${token}` } });
+        const meD = await meR.json();
+        const primaries = (meD?.user?.primaryPatients || []);
+        setIsPrimary(Array.isArray(primaries) && primaries.some(pp => pp._id === d.patient.id));
+      } catch {}
+      setViewTier('early');
+    } catch (e) {
+      setToast({ type: 'error', message: 'Server error, please try again' });
+    }
+  };
+
+  const getRecords = async (tier) => {
+    if (!patient) return;
+    try {
+      const r = await fetch(`http://localhost:5000/api/auth/doctor/patient/${patient.id}/records?tier=${tier}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      const data2 = await r2.json();
-      if (r2.ok) setRecords(data2.records || []);
-      setViewTier('early');
+      const data = await r.json();
+      if (r.ok) {
+        setRecords(data.records || []);
+        setViewTier(tier);
+        setToast({ type: 'success', message: `${tier.charAt(0).toUpperCase() + tier.slice(1)} access records loaded` });
+      } else {
+        setToast({ type: 'error', message: data.message || `Failed to load ${tier} records` });
+      }
     } catch (e) {
       setToast({ type: 'error', message: 'Server error, please try again' });
     }
@@ -97,93 +111,74 @@ export default function PatientSearch() {
       const d = await r.json();
       if (!r.ok) return setToast({ type: 'error', message: d.message || 'Failed to request emergency access' });
       setToast({ type: 'success', message: 'Emergency access granted for 10 minutes' });
-      const r2 = await fetch(`http://localhost:5000/api/auth/doctor/patient/${patient.id}/records?tier=emergency`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const data2 = await r2.json();
-      if (r2.ok) {
-        setRecords((prev) => [...prev, ...(data2.records || [])]);
-        setViewTier('emergency');
-      }
+      getRecords('emergency');
     } catch (e) {
       setToast({ type: 'error', message: 'Server error, please try again' });
     }
   };
 
   const requestCritical = async () => {
-    setToast({})
-    if (!patient) return
+    setToast({});
+    if (!patient) return;
     try {
-      const fd = new FormData()
-      fd.append('tier', 'critical')
-  critFiles.forEach((f) => fd.append('files', f))
+      const fd = new FormData();
+      fd.append('tier', 'critical');
+      critFiles.forEach((f) => fd.append('files', f));
       const r = await fetch(`http://localhost:5000/api/auth/doctor/patient/${patient.id}/access-request`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
         body: fd,
-      })
-      const d = await r.json()
-      if (!r.ok) return setToast({ type: 'error', message: d.message || 'Failed to request critical access' })
-      setToast({ type: 'success', message: 'Critical access request sent to primary doctor for approval' })
+      });
+      const d = await r.json();
+      if (!r.ok) return setToast({ type: 'error', message: d.message || 'Failed to request critical access' });
+      setToast({ type: 'success', message: 'Critical access request sent to primary doctor for approval' });
     } catch (e) {
-      setToast({ type: 'error', message: 'Server error, please try again' })
-    }
-  }
-
-  const refreshEarly = async () => {
-    if (!patient) return;
-    try {
-      const r2 = await fetch(`http://localhost:5000/api/auth/doctor/patient/${patient.id}/records?tier=early`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const data2 = await r2.json();
-      if (r2.ok) {
-        setRecords(data2.records || []);
-        setViewTier('early');
-        setToast({ type: 'success', message: 'Early access records refreshed' });
-      }
-    } catch {
-      setToast({ type: 'error', message: 'Failed to refresh records' });
+      setToast({ type: 'error', message: 'Server error, please try again' });
     }
   };
 
-  const handleAddDocument = (e) => {
+  const handleAddDocument = (e, type) => {
     const f = e.target.files && e.target.files[0];
     if (!f) return;
-    const next = [...files, f];
-    setFiles(next);
-    setCount(next.length);
+
+    if (type === 'emergency') {
+      const next = [...files, f];
+      setFiles(next);
+      setCount(next.length);
+    } else if (type === 'critical') {
+      const next = [...critFiles, f].slice(0, 3);
+      setCritFiles(next);
+      setCritCount(next.length);
+    }
+
     e.target.value = '';
   };
 
-  const handleAddCriticalDocument = (e) => {
-    const f = e.target.files && e.target.files[0];
-    if (!f) return;
-    const next = [...critFiles, f].slice(0, 3);
-    setCritFiles(next);
-    setCritCount(next.length);
-    e.target.value = '';
+  const handleDrop = (e, type) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const droppedFiles = Array.from(e.dataTransfer.files).filter(
+      (f) => f.type === 'image/jpeg' || f.type === 'image/png' || f.type === 'application/pdf'
+    );
+    if (droppedFiles.length === 0) {
+      setToast({ type: 'error', message: 'Only JPEG, PNG, or PDF files are allowed' });
+      return;
+    }
+
+    if (type === 'emergency') {
+      const next = [...files, ...droppedFiles];
+      setFiles(next);
+      setCount(next.length);
+    } else if (type === 'critical') {
+      const next = [...critFiles, ...droppedFiles].slice(0, 3);
+      setCritFiles(next);
+      setCritCount(next.length);
+    }
   };
 
-  const refreshCritical = async () => {
-    if (!patient) return;
-    try {
-      const r2 = await fetch(`http://localhost:5000/api/auth/doctor/patient/${patient.id}/records?tier=critical`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const data2 = await r2.json();
-      if (r2.ok) {
-        // merge early/emergency already loaded with new critical
-        const nonCritical = (records || []).filter((r) => r.accessTier !== 'critical');
-        setRecords([...nonCritical, ...(data2.records || [])]);
-        setViewTier('critical');
-        setToast({ type: 'success', message: 'Critical records refreshed' });
-      } else if (data2?.message) {
-        setToast({ type: 'error', message: data2.message });
-      }
-    } catch {
-      setToast({ type: 'error', message: 'Failed to refresh critical records' });
-    }
+  const handleDragOver = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
   };
 
   return (
@@ -301,7 +296,7 @@ export default function PatientSearch() {
         {/* Patient Details */}
         {patient && (
           <div className="bg-white/80 backdrop-blur-lg rounded-2xl shadow-lg p-6 border border-blue-100/50">
-            <div className="flex items-center space-x-4 mb-4">
+            <div className="flex items-center space-x-4 mb-6">
               <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center shadow-md">
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
@@ -314,116 +309,333 @@ export default function PatientSearch() {
             </div>
 
             {/* Access Controls */}
-            <div className="flex flex-wrap gap-3 mb-6">
-              <button
-                onClick={refreshEarly}
-                className="bg-gradient-to-r from-blue-700 to-teal-600 text-white px-5 py-2 rounded-lg font-semibold shadow-xl shadow-blue-500/30 hover:shadow-2xl hover:shadow-blue-500/40 transition-all duration-300 transform hover:-translate-y-1 text-sm flex items-center space-x-2"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                </svg>
-                <span>Get Early Access</span>
-              </button>
-              <button
-                onClick={() => addFileInputRef.current?.click()}
-                className="bg-gradient-to-r from-gray-800 to-gray-900 text-white px-5 py-2 rounded-lg font-semibold shadow-xl shadow-gray-500/30 hover:shadow-2xl hover:shadow-gray-500/40 transition-all duration-300 transform hover:-translate-y-1 text-sm flex items-center space-x-2"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                </svg>
-                <span>Add Document</span>
-              </button>
-              <button
-                onClick={() => {
-                  setFiles([]);
-                  setCount(0);
-                }}
-                className="bg-gray-200 text-gray-800 px-5 py-2 rounded-lg font-semibold shadow-md hover:shadow-lg transition-all duration-300 text-sm flex items-center space-x-2"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-                <span>Clear Documents</span>
-              </button>
-              <input
-                ref={addFileInputRef}
-                type="file"
-                accept="image/jpeg,image/png,application/pdf"
-                className="hidden"
-                onChange={handleAddDocument}
-              />
-              <span className="self-center text-sm text-blue-600">
-                Selected: {count} / 3 required
-              </span>
-              <button
-                disabled={count < 3}
-                onClick={requestEmergency}
-                className={`px-5 py-2 rounded-lg font-semibold text-sm transition-all duration-300 flex items-center space-x-2 ${
-                  count < 3
-                    ? 'bg-gray-200 text-gray-600 cursor-not-allowed'
-                    : 'bg-gradient-to-r from-orange-600 to-orange-700 text-white shadow-xl shadow-orange-500/30 hover:shadow-2xl hover:shadow-orange-500/40 transform hover:-translate-y-1'
-                }`}
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v3m0 0v3m0-3h-3m3 0h3m-9 6h12a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                </svg>
-                <span>Request Emergency Access (10 min)</span>
-              </button>
-              {!isPrimary && (
-                <div className="flex items-center gap-3">
-                  <label className="bg-gradient-to-r from-gray-800 to-gray-900 text-white px-4 py-2 rounded-lg font-semibold shadow-md cursor-pointer text-sm">
-                    <input type="file" accept="image/jpeg,image/png,application/pdf" className="hidden" onChange={handleAddCriticalDocument} />
-                    Add Critical Proof
-                  </label>
-                  <span className="self-center text-sm text-blue-600">Critical Proofs: {critCount} / 3 required</span>
-                  <button
-                    disabled={critCount !== 3}
-                    onClick={requestCritical}
-                    className={`px-5 py-2 rounded-lg font-semibold text-sm transition-all duration-300 ${
-                      critCount !== 3
-                        ? 'bg-gray-200 text-gray-600 cursor-not-allowed'
-                        : 'bg-gradient-to-r from-red-600 to-red-700 text-white shadow-xl shadow-red-500/30 hover:shadow-2xl hover:shadow-red-500/40 transform hover:-translate-y-1'
-                    }`}
-                  >
-                    Request Critical Access (Primary Approval)
-                  </button>
-                  <button onClick={refreshCritical} className="px-4 py-2 rounded-lg font-semibold text-sm bg-gray-100">Refresh Critical</button>
-                </div>
-              )}
+            <div className="mb-8">
+              <h3 className="text-lg font-semibold text-blue-800 mb-4">Access Level</h3>
+              <div className="flex flex-wrap gap-4">
+                <button
+                  onClick={() => {
+                    getRecords('early');
+                    setActiveTab(null); // Hide document upload section
+                  }}
+                  className={`px-6 py-3 rounded-xl font-semibold shadow-lg transition-all duration-300 flex items-center space-x-2 ${
+                    viewTier === 'early'
+                      ? 'bg-gradient-to-r from-blue-700 to-teal-600 text-white shadow-blue-500/40 transform -translate-y-1'
+                      : 'bg-white text-blue-800 border border-blue-200 hover:shadow-xl hover:-translate-y-1'
+                  }`}
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <span>Early Access</span>
+                </button>
+                
+                <button
+                  onClick={() => {
+                    getRecords('emergency');
+                    setActiveTab('emergency'); // Show emergency document upload
+                  }}
+                  className={`px-6 py-3 rounded-xl font-semibold shadow-lg transition-all duration-300 flex items-center space-x-2 ${
+                    viewTier === 'emergency'
+                      ? 'bg-gradient-to-r from-orange-600 to-orange-700 text-white shadow-orange-500/40 transform -translate-y-1'
+                      : 'bg-white text-orange-800 border border-orange-200 hover:shadow-xl hover:-translate-y-1'
+                  }`}
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                  </svg>
+                  <span>Emergency Access</span>
+                </button>
+                
+                <button
+                  onClick={() => {
+                    getRecords('critical');
+                    setActiveTab('critical'); // Show critical document upload
+                  }}
+                  className={`px-6 py-3 rounded-xl font-semibold shadow-lg transition-all duration-300 flex items-center space-x-2 ${
+                    viewTier === 'critical'
+                      ? 'bg-gradient-to-r from-red-600 to-red-700 text-white shadow-red-500/40 transform -translate-y-1'
+                      : 'bg-white text-red-800 border border-red-200 hover:shadow-xl hover:-translate-y-1'
+                  }`}
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                  </svg>
+                  <span>Critical Access</span>
+                </button>
+              </div>
             </div>
 
-            {/* Uploaded Files */}
-            {files.length > 0 && (
-              <div className="mb-6">
-                <h3 className="text-sm font-semibold text-blue-800 mb-2">Uploaded Documents</h3>
-                <ul className="text-sm text-blue-600 list-disc pl-5 space-y-1">
-                  {files.map((f, i) => (
-                    <li key={i} className="flex items-center space-x-2">
-                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
-                      </svg>
-                      <span>{f.name}</span>
-                    </li>
-                  ))}
-                </ul>
+            {/* Document Upload Section */}
+            {activeTab && (
+              <div className="mb-8">
+                <h3 className="text-lg font-semibold text-blue-800 mb-4">Add Documents</h3>
+                
+                {/* Emergency Documents */}
+                {activeTab === 'emergency' && (
+                  <div className="bg-blue-50/50 p-4 rounded-lg">
+                    <div
+                      className="border-2 border-dashed border-blue-300 p-6 mb-4 rounded-lg text-center"
+                      onDrop={(e) => handleDrop(e, 'emergency')}
+                      onDragOver={handleDragOver}
+                    >
+                      <p className="text-blue-600 text-sm mb-2">Drag and drop files here (JPEG, PNG, PDF)</p>
+                      <label className="bg-blue-600 text-white py-2 px-4 rounded-lg text-xs cursor-pointer hover:bg-blue-700 transition-colors">
+                        <input
+                          type="file"
+                          accept="image/jpeg,image/png,application/pdf"
+                          className="hidden"
+                          onChange={(e) => handleAddDocument(e, 'emergency')}
+                          multiple
+                        />
+                        Or click to upload
+                      </label>
+                    </div>
+                    
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                      <div className="bg-white p-4 rounded-lg shadow-sm border border-blue-100">
+                        <h4 className="font-medium text-blue-800 text-sm mb-2">Provisional Patent File</h4>
+                        <label className="block bg-blue-600 text-white text-center py-2 px-3 rounded-lg text-xs cursor-pointer hover:bg-blue-700 transition-colors">
+                          <input
+                            type="file"
+                            accept="image/jpeg,image/png,application/pdf"
+                            className="hidden"
+                            onChange={(e) => handleAddDocument(e, 'emergency')}
+                          />
+                          Upload File
+                        </label>
+                      </div>
+                      
+                      <div className="bg-white p-4 rounded-lg shadow-sm border border-blue-100">
+                        <h4 className="font-medium text-blue-800 text-sm mb-2">MLC Report</h4>
+                        <label className="block bg-blue-600 text-white text-center py-2 px-3 rounded-lg text-xs cursor-pointer hover:bg-blue-700 transition-colors">
+                          <input
+                            type="file"
+                            accept="image/jpeg,image/png,application/pdf"
+                            className="hidden"
+                            onChange={(e) => handleAddDocument(e, 'emergency')}
+                          />
+                          Upload File
+                        </label>
+                      </div>
+                      
+                      <div className="bg-white p-4 rounded-lg shadow-sm border border-blue-100">
+                        <h4 className="font-medium text-blue-800 text-sm mb-2">Implied Content</h4>
+                        <label className="block bg-blue-600 text-white text-center py-2 px-3 rounded-lg text-xs cursor-pointer hover:bg-blue-700 transition-colors">
+                          <input
+                            type="file"
+                            accept="image/jpeg,image/png,application/pdf"
+                            className="hidden"
+                            onChange={(e) => handleAddDocument(e, 'emergency')}
+                          />
+                          Upload File
+                        </label>
+                      </div>
+                    </div>
+                    
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-blue-600">
+                        Selected: {count} / 3 required for emergency access
+                      </span>
+                      
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => {
+                            setFiles([]);
+                            setCount(0);
+                          }}
+                          className="bg-gray-200 text-gray-800 px-4 py-2 rounded-lg font-medium text-sm shadow-md hover:shadow-lg transition-all"
+                        >
+                          Clear All
+                        </button>
+                        
+                        <button
+                          disabled={count < 3}
+                          onClick={requestEmergency}
+                          className={`px-4 py-2 rounded-lg font-medium text-sm transition-all ${
+                            count < 3
+                              ? 'bg-gray-300 text-gray-600 cursor-not-allowed'
+                              : 'bg-gradient-to-r from-orange-600 to-orange-700 text-white shadow-xl shadow-orange-500/30 hover:shadow-2xl hover:shadow-orange-500/40 transform hover:-translate-y-1'
+                          }`}
+                        >
+                          Request Emergency Access
+                        </button>
+                      </div>
+                    </div>
+                    
+                    {files.length > 0 && (
+                      <div className="mt-4">
+                        <h4 className="text-sm font-semibold text-blue-800 mb-2">Uploaded Documents</h4>
+                        <ul className="text-sm text-blue-600 space-y-1">
+                          {files.map((f, i) => (
+                            <li key={i} className="flex items-center space-x-2 bg-white/80 p-2 rounded-lg">
+                              <svg
+                                xmlns="http://www.w3.org/2000/svg"
+                                className="h-4 w-4 text-blue-500"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                stroke="currentColor"
+                              >
+                                <path
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  strokeWidth={2}
+                                  d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"
+                                />
+                              </svg>
+                              <span>{f.name}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                )}
+                
+                {/* Critical Documents */}
+                {activeTab === 'critical' && !isPrimary && (
+                  <div className="bg-red-50/50 p-4 rounded-lg">
+                    <div
+                      className="border-2 border-dashed border-red-300 p-6 mb-4 rounded-lg text-center"
+                      onDrop={(e) => handleDrop(e, 'critical')}
+                      onDragOver={handleDragOver}
+                    >
+                      <p className="text-red-600 text-sm mb-2">Drag and drop files here (JPEG, PNG, PDF)</p>
+                      <label className="bg-red-600 text-white py-2 px-4 rounded-lg text-xs cursor-pointer hover:bg-red-700 transition-colors">
+                        <input
+                          type="file"
+                          accept="image/jpeg,image/png,application/pdf"
+                          className="hidden"
+                          onChange={(e) => handleAddDocument(e, 'critical')}
+                          multiple
+                        />
+                        Or click to upload
+                      </label>
+                    </div>
+                    
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                      <div className="bg-white p-4 rounded-lg shadow-sm border border-red-100">
+                        <h4 className="font-medium text-red-800 text-sm mb-2">Provisional Patent File</h4>
+                        <label className="block bg-red-600 text-white text-center py-2 px-3 rounded-lg text-xs cursor-pointer hover:bg-red-700 transition-colors">
+                          <input
+                            type="file"
+                            accept="image/jpeg,image/png,application/pdf"
+                            className="hidden"
+                            onChange={(e) => handleAddDocument(e, 'critical')}
+                          />
+                          Upload File
+                        </label>
+                      </div>
+                      
+                      <div className="bg-white p-4 rounded-lg shadow-sm border border-red-100">
+                        <h4 className="font-medium text-red-800 text-sm mb-2">MLC Report</h4>
+                        <label className="block bg-red-600 text-white text-center py-2 px-3 rounded-lg text-xs cursor-pointer hover:bg-red-700 transition-colors">
+                          <input
+                            type="file"
+                            accept="image/jpeg,image/png,application/pdf"
+                            className="hidden"
+                            onChange={(e) => handleAddDocument(e, 'critical')}
+                          />
+                          Upload File
+                        </label>
+                      </div>
+                      
+                      <div className="bg-white p-4 rounded-lg shadow-sm border border-red-100">
+                        <h4 className="font-medium text-red-800 text-sm mb-2">Implied Content</h4>
+                        <label className="block bg-red-600 text-white text-center py-2 px-3 rounded-lg text-xs cursor-pointer hover:bg-red-700 transition-colors">
+                          <input
+                            type="file"
+                            accept="image/jpeg,image/png,application/pdf"
+                            className="hidden"
+                            onChange={(e) => handleAddDocument(e, 'critical')}
+                          />
+                          Upload File
+                        </label>
+                      </div>
+                    </div>
+                    
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-red-600">
+                        Selected: {critCount} / 3 required for critical access
+                      </span>
+                      
+                      <button
+                        disabled={critCount !== 3}
+                        onClick={requestCritical}
+                        className={`px-4 py-2 rounded-lg font-medium text-sm transition-all ${
+                          critCount !== 3
+                            ? 'bg-gray-300 text-gray-600 cursor-not-allowed'
+                            : 'bg-gradient-to-r from-red-600 to-red-700 text-white shadow-xl shadow-red-500/30 hover:shadow-2xl hover:shadow-red-500/40 transform hover:-translate-y-1'
+                        }`}
+                      >
+                        Request Critical Access
+                      </button>
+                    </div>
+                    
+                    {critFiles.length > 0 && (
+                      <div className="mt-4">
+                        <h4 className="text-sm font-semibold text-red-800 mb-2">Uploaded Documents</h4>
+                        <ul className="text-sm text-red-600 space-y-1">
+                          {critFiles.map((f, i) => (
+                            <li key={i} className="flex items-center space-x-2 bg-white/80 p-2 rounded-lg">
+                              <svg
+                                xmlns="http://www.w3.org/2000/svg"
+                                className="h-4 w-4 text-red-500"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                stroke="currentColor"
+                              >
+                                <path
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  strokeWidth={2}
+                                  d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"
+                                />
+                              </svg>
+                              <span>{f.name}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                )}
+                
+                {activeTab === 'critical' && isPrimary && (
+                  <div className="bg-green-50/50 p-4 rounded-lg text-center">
+                    <p className="text-green-700">You are the primary doctor for this patient and have full access to critical records.</p>
+                    <button
+                      onClick={() => getRecords('critical')}
+                      className="mt-3 bg-gradient-to-r from-green-600 to-green-700 text-white px-4 py-2 rounded-lg font-medium text-sm shadow-lg hover:shadow-xl transition-all"
+                    >
+                      View Critical Records
+                    </button>
+                  </div>
+                )}
               </div>
             )}
 
             {/* Records Section */}
             <div>
-              <h3 className="text-lg font-semibold text-blue-800 mb-4 flex items-center space-x-2">
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-                </svg>
-                <span>Patient Records ({viewTier || 'all'})</span>
-              </h3>
-              {(viewTier ? records.filter((r) => r.accessTier === viewTier).length === 0 : records.length === 0) ? (
-                <div className="text-blue-600 text-center py-6 text-sm">
-                  No records visible for {viewTier || 'this'} access tier.
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-lg font-semibold text-blue-800 flex items-center space-x-2">
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                  </svg>
+                  <span>Patient Records ({viewTier || 'none'})</span>
+                </h3>
+                
+                <div className="text-sm font-medium px-3 py-1 rounded-full bg-blue-100 text-blue-800">
+                  {records.length} records found
+                </div>
+              </div>
+              
+              {records.length === 0 ? (
+                <div className="text-blue-600 text-center py-8 text-sm bg-blue-50/50 rounded-lg">
+                  No records available for {viewTier || 'this'} access level.
                 </div>
               ) : (
                 <ul className="space-y-4">
-                  {(viewTier ? records.filter((r) => r.accessTier === viewTier) : records).map((r) => (
+                  {records.map((r) => (
                     <li
                       key={r.id}
                       data-animate-record
@@ -435,6 +647,17 @@ export default function PatientSearch() {
                           <div className="text-sm text-blue-600">
                             Tier: {r.accessTier} • {new Date(r.createdAt).toLocaleString()}
                           </div>
+                          <span
+                            className={`px-2 py-1 rounded-full text-xs font-medium ${
+                              r.accessTier === 'early'
+                                ? 'bg-blue-100 text-blue-800'
+                                : r.accessTier === 'emergency'
+                                ? 'bg-orange-100 text-orange-800'
+                                : 'bg-red-100 text-red-800'
+                            }`}
+                          >
+                            {r.accessTier}
+                          </span>
                         </div>
                         <pre className="whitespace-pre-wrap text-sm text-blue-900 bg-blue-50/50 p-3 rounded-lg">{formatDataText(r.data)}</pre>
                         {Array.isArray(r.files) && r.files.length > 0 && (
