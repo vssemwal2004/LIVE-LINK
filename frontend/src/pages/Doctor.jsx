@@ -8,6 +8,8 @@ export default function Doctor() {
   const [form, setForm] = useState({})
   const [files, setFiles] = useState([])
   const [toast, setToast] = useState({ type: '', message: '' })
+  const [section, setSection] = useState({ label: '', data: '' })
+  const [existing, setExisting] = useState(null)
   const navigate = useNavigate()
 
   useEffect(() => {
@@ -35,7 +37,10 @@ export default function Doctor() {
         <h1 className="text-2xl font-bold">Doctor dashboard</h1>
         <button onClick={logout} className="bg-red-500 text-white px-3 py-1 rounded">Logout</button>
       </div>
-      <p className="mt-2">Welcome, Dr. {user.name}</p>
+      <div className="mt-2 flex items-center justify-between">
+        <p>Welcome, Dr. {user.name}</p>
+        <button onClick={() => navigate('/doctor/patient-search')} className="bg-gray-900 text-white px-3 py-1 rounded">Patient Search</button>
+      </div>
 
       <div className="mt-6 bg-white border rounded p-4">
         <h2 className="text-lg font-semibold mb-2">Primary Patients</h2>
@@ -48,7 +53,22 @@ export default function Doctor() {
                   <div className="text-sm text-gray-600">{p.email}</div>
                 </div>
                 <button
-                  onClick={() => setSelectedPatient(p)}
+                  onClick={async () => {
+                    setSelectedPatient(p)
+                    // load existing record for default tier
+                    try{
+                      const token = localStorage.getItem('token')
+                      const r = await fetch(`http://localhost:5000/api/auth/doctor/patient/${p._id}/record/${tier}`, { headers: { Authorization: `Bearer ${token}` } })
+                      const d = await r.json()
+                      if(r.ok && d.record){
+                        setExisting(d.record)
+                        setForm(d.record.data || {})
+                      } else {
+                        setExisting(null)
+                        setForm({})
+                      }
+                    } catch{}
+                  }}
                   className="bg-blue-600 text-white px-3 py-1 rounded"
                 >
                   Add Details
@@ -68,9 +88,17 @@ export default function Doctor() {
             <button onClick={() => { setSelectedPatient(null); setForm({}); setFiles([]); setTier('early'); setToast({}) }} className="text-sm underline">Close</button>
           </div>
           <div className="flex gap-2 mb-3">
-            <button onClick={() => setTier('early')} className={`px-3 py-1 rounded ${tier==='early'?'bg-gray-900 text-white':'bg-gray-100'}`}>Early Access</button>
-            <button onClick={() => setTier('emergency')} className={`px-3 py-1 rounded ${tier==='emergency'?'bg-gray-900 text-white':'bg-gray-100'}`}>Emergency Access</button>
-            <button onClick={() => setTier('critical')} className={`px-3 py-1 rounded ${tier==='critical'?'bg-gray-900 text-white':'bg-gray-100'}`}>Critical Access</button>
+            {['early','emergency','critical'].map((t)=> (
+              <button key={t} onClick={async ()=>{
+                setTier(t)
+                try{
+                  const token = localStorage.getItem('token')
+                  const r = await fetch(`http://localhost:5000/api/auth/doctor/patient/${selectedPatient._id}/record/${t}`, { headers: { Authorization: `Bearer ${token}` } })
+                  const d = await r.json()
+                  if(r.ok && d.record){ setExisting(d.record); setForm(d.record.data || {}) } else { setExisting(null); setForm({}) }
+                }catch{}
+              }} className={`px-3 py-1 rounded ${tier===t?'bg-gray-900 text-white':'bg-gray-100'}`}>{t.charAt(0).toUpperCase()+t.slice(1)} Access</button>
+            ))}
           </div>
 
           {/* Tier-specific fields */}
@@ -101,6 +129,10 @@ export default function Doctor() {
             </div>
           )}
 
+          {existing && (
+            <div className="mb-3 text-sm text-gray-600">Editing existing {tier} record from {new Date(existing.createdAt).toLocaleString()}</div>
+          )}
+
           <div className="mt-3">
             <label className="block text-sm font-medium">Attach JPG/PDF (optional)</label>
             <input type="file" accept="image/jpeg,image/png,application/pdf" multiple onChange={(e) => setFiles(Array.from(e.target.files || []))} />
@@ -121,8 +153,10 @@ export default function Doctor() {
                   Object.entries(form).forEach(([k,v]) => fd.append(k, v ?? ''))
                   files.forEach((f) => fd.append('files', f))
                   const token = localStorage.getItem('token')
-                  const r = await fetch(`http://localhost:5000/api/auth/doctor/patient/${selectedPatient._id}/records`, {
-                    method: 'POST',
+                  const method = 'PUT'
+                  const endpoint = `http://localhost:5000/api/auth/doctor/patient/${selectedPatient._id}/records/${tier}`
+                  const r = await fetch(endpoint, {
+                    method,
                     headers: { Authorization: `Bearer ${token}` },
                     body: fd
                   })
@@ -135,6 +169,46 @@ export default function Doctor() {
               }}
             >
               Save Details
+            </button>
+          </div>
+
+          {/* Add extra box */}
+          <div className="mt-6 border-t pt-4">
+            <h4 className="font-semibold mb-2">Add Box (Section) to this {tier} record</h4>
+            <div className="grid md:grid-cols-2 gap-3">
+              <Input label="Section Label" name="label" form={section} setForm={setSection} />
+              <div>
+                <label className="block text-sm font-medium">Section Data (JSON or text)</label>
+                <textarea className="w-full border px-3 py-2 rounded" rows={4} value={section.data} onChange={(e)=>setSection((p)=>({...p, data: e.target.value}))} />
+              </div>
+            </div>
+            <div className="mt-2">
+              <input type="file" multiple accept="image/jpeg,image/png,application/pdf" onChange={(e)=>setFiles(Array.from(e.target.files||[]))} />
+            </div>
+            <button
+              className="mt-2 bg-gray-800 text-white px-3 py-1 rounded"
+              onClick={async ()=>{
+                try{
+                  setToast({})
+                  const fd = new FormData()
+                  fd.append('label', section.label)
+                  fd.append('data', section.data)
+                  files.forEach((f)=> fd.append('files', f))
+                  const token = localStorage.getItem('token')
+                  const r = await fetch(`http://localhost:5000/api/auth/doctor/patient/${selectedPatient._id}/records/${tier}/sections`, {
+                    method: 'POST',
+                    headers: { Authorization: `Bearer ${token}` },
+                    body: fd
+                  })
+                  const d = await r.json()
+                  if(!r.ok) return setToast({ type:'error', message: d.message || 'Failed to add section' })
+                  setToast({ type:'success', message:'Section added' })
+                }catch(e){
+                  setToast({ type:'error', message:'Server error' })
+                }
+              }}
+            >
+              Add Box
             </button>
           </div>
         </div>
