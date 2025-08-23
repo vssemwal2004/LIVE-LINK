@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { API_BASE } from '../apiBase'
 
 export default function PatientEdit() {
   const [card, setCard] = useState('')
@@ -30,13 +31,13 @@ export default function PatientEdit() {
     setToast({})
     setPatient(null)
     try {
-      const r = await fetch(`http://localhost:5000/api/auth/patient/by-card/${encodeURIComponent(card)}`, { headers: { Authorization: `Bearer ${token}` } })
+      const r = await fetch(`${API_BASE}/api/auth/patient/by-card/${encodeURIComponent(card)}`, { headers: { Authorization: `Bearer ${token}` } })
       const d = await r.json()
       if(!r.ok) return setToast({ type:'error', message: d.message || 'Patient not found' })
       setPatient(d.patient)
       // check if current doctor is primary of this patient via /me data
       try {
-        const meR = await fetch('http://localhost:5000/api/auth/me', { headers: { Authorization: `Bearer ${token}` } })
+        const meR = await fetch(`${API_BASE}/api/auth/me`, { headers: { Authorization: `Bearer ${token}` } })
         const meD = await meR.json()
         const primaries = (meD?.user?.primaryPatients || [])
         setIsPrimary(Array.isArray(primaries) && primaries.some(pp => pp._id === d.patient.id))
@@ -50,7 +51,7 @@ export default function PatientEdit() {
 
   const loadMyProposal = async (patientId, t) => {
     try{
-      const r = await fetch(`http://localhost:5000/api/auth/doctor/patient/${patientId}/proposals/me?tier=${encodeURIComponent(t)}`, { headers: { Authorization: `Bearer ${token}` } })
+      const r = await fetch(`${API_BASE}/api/auth/doctor/patient/${patientId}/proposals/me?tier=${encodeURIComponent(t)}`, { headers: { Authorization: `Bearer ${token}` } })
       const d = await r.json()
       if (r.ok && d.proposal) {
         setForm(d.proposal.data || {})
@@ -69,7 +70,7 @@ export default function PatientEdit() {
       // send structured JSON
       fd.append('data', JSON.stringify(form))
       files.forEach((f)=> fd.append('files', f))
-      const r = await fetch(`http://localhost:5000/api/auth/doctor/patient/${patient.id}/proposals`, {
+      const r = await fetch(`${API_BASE}/api/auth/doctor/patient/${patient.id}/proposals`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
         body: fd

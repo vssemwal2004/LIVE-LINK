@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { API_BASE } from '../apiBase';
 
 export default function Doctor() {
   const [user, setUser] = useState(null);
@@ -36,7 +37,7 @@ export default function Doctor() {
   useEffect(() => {
     const token = localStorage.getItem('token');
     if (!token) return navigate('/login');
-    fetch('http://localhost:5000/api/auth/me', { headers: { Authorization: `Bearer ${token}` } })
+    fetch(`${API_BASE}/api/auth/me`, { headers: { Authorization: `Bearer ${token}` } })
       .then((r) => r.json())
       .then((d) => {
         if (d.user?.role !== 'doctor') return navigate('/patient');
@@ -75,7 +76,7 @@ export default function Doctor() {
     setSelectedPatient(p);
     try {
       const token = localStorage.getItem('token');
-      const r = await fetch(`http://localhost:5000/api/auth/doctor/patient/${p._id}/record/${tier}`, {
+      const r = await fetch(`${API_BASE}/api/auth/doctor/patient/${p._id}/record/${tier}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       const d = await r.json();
@@ -109,10 +110,15 @@ export default function Doctor() {
       Object.entries(form).forEach(([k, v]) => fd.append(k, v ?? ''));
       files.forEach((f) => fd.append('files', f));
       const token = localStorage.getItem('token');
-      const r = await fetch(`http://localhost:5000/api/auth/doctor/patient/${selectedPatient._id}/records/${tier}`, {
+      const r = await fetch(`${API_BASE}/api/auth/doctor/patient/${selectedPatient._id}/records/${tier}`, {
         method: 'PUT',
         headers: { Authorization: `Bearer ${token}` },
-        body: fd,
+        body: (() => {
+          const fd = new FormData();
+          fd.append('data', JSON.stringify(form));
+          (files || []).forEach((f) => fd.append('files', f));
+          return fd;
+        })(),
       });
       const d = await r.json();
       if (!r.ok) return setToast({ type: 'error', message: d.message || 'Failed to save record' });
@@ -130,17 +136,46 @@ export default function Doctor() {
       fd.append('data', section.data);
       files.forEach((f) => fd.append('files', f));
       const token = localStorage.getItem('token');
-      const r = await fetch(`http://localhost:5000/api/auth/doctor/patient/${selectedPatient._id}/records/${tier}/sections`, {
+      const r = await fetch(`${API_BASE}/api/auth/doctor/patient/${selectedPatient._id}/records/${tier}/sections`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
-        body: fd,
+        body: (() => {
+          const fd = new FormData();
+          fd.append('label', section.label);
+          fd.append('data', section.data);
+          return fd;
+        })(),
       });
       const d = await r.json();
       if (!r.ok) return setToast({ type: 'error', message: d.message || 'Failed to add section' });
       setToast({ type: 'success', message: 'Section added successfully' });
       setSection({ label: '', data: '' });
       setFiles([]);
-      const rr = await fetch(`http://localhost:5000/api/auth/doctor/patient/${selectedPatient._id}/record/${tier}`, {
+      const rr = await fetch(`${API_BASE}/api/auth/doctor/patient/${selectedPatient._id}/record/${tier}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const dd = await rr.json();
+      if (rr.ok && dd.record) {
+        setExisting(dd.record);
+        const edits = {};
+        (dd.record.sections || []).forEach((sx) => {
+          edits[sx.id] = {
+            label: sx.label || '',
+            data: sx?.data && typeof sx.data.text === 'string' ? sx.data.text : JSON.stringify(sx.data ?? {}, null, 2),
+            files: [],
+          };
+        });
+        setSectionEdits(edits);
+      }
+    } catch (e) {
+      setToast({ type: 'error', message: 'Server error, please try again' });
+    }
+  };
+
+  const refreshExisting = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const rr = await fetch(`${API_BASE}/api/auth/doctor/patient/${selectedPatient._id}/record/${tier}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       const dd = await rr.json();
@@ -170,21 +205,27 @@ export default function Doctor() {
       fd.append('data', edit.data);
       (edit.files || []).forEach((f) => fd.append('files', f));
       const token = localStorage.getItem('token');
-      const r = await fetch(
-        `http://localhost:5000/api/auth/doctor/patient/${selectedPatient._id}/records/${tier}/sections/${sectionId}`,
+      const rr = await fetch(
+        `${API_BASE}/api/auth/doctor/patient/${selectedPatient._id}/records/${tier}/sections/${sectionId}`,
         {
           method: 'PUT',
           headers: { Authorization: `Bearer ${token}` },
-          body: fd,
+          body: (() => {
+            const fd = new FormData();
+            const ed = sectionEdits[sectionId] || {};
+            fd.append('label', ed.label || '');
+            fd.append('data', ed.data || '');
+            return fd;
+          })(),
         }
       );
-      const d = await r.json();
-      if (!r.ok) return setToast({ type: 'error', message: d.message || 'Failed to update section' });
-      const rr = await fetch(`http://localhost:5000/api/auth/doctor/patient/${selectedPatient._id}/record/${tier}`, {
+      const d = await rr.json();
+      if (!rr.ok) return setToast({ type: 'error', message: d.message || 'Failed to update section' });
+      const r = await fetch(`${API_BASE}/api/auth/doctor/patient/${selectedPatient._id}/record/${tier}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      const dd = await rr.json();
-      if (rr.ok && dd.record) {
+      const dd = await r.json();
+      if (r.ok && dd.record) {
         setExisting(dd.record);
         const edits = {};
         (dd.record.sections || []).forEach((sx) => {
@@ -198,6 +239,36 @@ export default function Doctor() {
       }
       setToast({ type: 'success', message: 'Section updated successfully' });
     } catch {
+      setToast({ type: 'error', message: 'Server error, please try again' });
+    }
+  };
+
+  const quickSwitchTier = async (t) => {
+    try {
+      const token = localStorage.getItem('token');
+      setTier(t);
+      const r = await fetch(`${API_BASE}/api/auth/doctor/patient/${selectedPatient._id}/record/${t}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const d = await r.json();
+      if (r.ok && d.record) {
+        setExisting(d.record);
+        setForm(d.record.data || {});
+        const edits = {};
+        (d.record.sections || []).forEach((s) => {
+          edits[s.id] = {
+            label: s.label || '',
+            data: s?.data && typeof s.data.text === 'string' ? s.data.text : JSON.stringify(s.data ?? {}, null, 2),
+            files: [],
+          };
+        });
+        setSectionEdits(edits);
+      } else {
+        setExisting(null);
+        setForm({});
+        setSectionEdits({});
+      }
+    } catch (e) {
       setToast({ type: 'error', message: 'Server error, please try again' });
     }
   };
@@ -395,7 +466,7 @@ export default function Doctor() {
                     setTier(t);
                     try {
                       const token = localStorage.getItem('token');
-                      const r = await fetch(`http://localhost:5000/api/auth/doctor/patient/${selectedPatient._id}/record/${t}`, {
+                      const r = await fetch(`${API_BASE}/api/auth/doctor/patient/${selectedPatient._id}/record/${t}`, {
                         headers: { Authorization: `Bearer ${token}` },
                       });
                       const d = await r.json();

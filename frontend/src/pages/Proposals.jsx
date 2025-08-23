@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react'
+import { API_BASE } from '../apiBase'
 import { useNavigate } from 'react-router-dom'
 
 export default function Proposals() {
@@ -19,7 +20,7 @@ export default function Proposals() {
   const load = async () => {
     setToast({})
     try{
-      const r = await fetch('http://localhost:5000/api/auth/doctor/proposals/pending', { headers: { Authorization: `Bearer ${token}` } })
+  const r = await fetch(`${API_BASE}/api/auth/doctor/proposals/pending`, { headers: { Authorization: `Bearer ${token}` } })
       const d = await r.json()
       if (!r.ok) return setToast({ type:'error', message: d.message || 'Failed to load proposals' })
       setProposals(d.proposals || [])
@@ -33,7 +34,7 @@ export default function Proposals() {
   const act = async (id, action) => {
     try{
       setToast({})
-      const r = await fetch(`http://localhost:5000/api/auth/doctor/proposals/${id}/${action}`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } })
+  const r = await fetch(`${API_BASE}/api/auth/doctor/proposals/${id}/${action}`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } })
       const d = await r.json()
       if(!r.ok) return setToast({ type:'error', message: d.message || 'Action failed' })
       await load()

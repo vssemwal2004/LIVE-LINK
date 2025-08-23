@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
+import { API_BASE } from '../apiBase';
 
 export default function PublicEarly() {
   const { cardNumber } = useParams();
@@ -14,7 +15,7 @@ export default function PublicEarly() {
       setLoading(true);
       setError('');
       try {
-        const r = await fetch(`http://localhost:5000/api/auth/public/patient/${encodeURIComponent(cardNumber)}/early`);
+  const r = await fetch(`${API_BASE}/api/auth/public/patient/${encodeURIComponent(cardNumber)}/early`);
         const d = await r.json();
         if (!r.ok) throw new Error(d.message || 'Failed to load');
         if (!alive) return;

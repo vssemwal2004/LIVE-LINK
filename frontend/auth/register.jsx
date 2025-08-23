@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import QRCode from 'qrcode';
+import { API_BASE } from '../src/apiBase';
 
 const Register = () => {
   const [role, setRole] = useState('patient');
@@ -59,7 +60,7 @@ const Register = () => {
       const body = role === 'patient'
         ? { name: form.name, phone: form.phone, email: form.email, password: form.password, recordPin: form.recordPin }
         : { name: form.name, phone: form.phone, medicalId: form.medicalId, email: form.email, password: form.password };
-      const res = await fetch(`http://localhost:5000/api/auth/${endpoint}`, {
+  const res = await fetch(`${API_BASE}/api/auth/${endpoint}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -73,7 +74,7 @@ const Register = () => {
           const card = data?.user?.cardNumber;
           let version = '0';
           try {
-            const vr = await fetch(`http://localhost:5000/api/auth/public/patient/${encodeURIComponent(card)}/early/version`);
+            const vr = await fetch(`${API_BASE}/api/auth/public/patient/${encodeURIComponent(card)}/early/version`);
             const vd = await vr.json();
             if (vr.ok && vd?.version) version = String(vd.version);
           } catch {}
