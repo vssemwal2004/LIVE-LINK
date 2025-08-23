@@ -22,6 +22,7 @@ export default function PatientSearch() {
   const [isAnimating, setIsAnimating] = useState(true);
   const criticalPollTokenRef = useRef(0);
   const criticalPollIntervalRef = useRef(null);
+  const lastFetchedUID = useRef(''); // Last UID track karne ke liye taaki duplicate na ho
 
   const token = localStorage.getItem('token');
 
@@ -37,7 +38,7 @@ export default function PatientSearch() {
     return String(data);
   };
 
-  // Animation loop for floating icons
+  // Floating icons ke liye animation
   useEffect(() => {
     if (!isAnimating) return;
 
@@ -56,6 +57,27 @@ export default function PatientSearch() {
     const interval = setInterval(startAnimation, 6000);
     return () => clearInterval(interval);
   }, [isAnimating]);
+
+  // ESP8266 se UID fetch karne ka polling (har 2 second mein check)
+  useEffect(() => {
+    const fetchUID = async () => {
+      try {
+        const response = await fetch('http://<ESP8266_IP>/getUID'); // Yahan apna ESP8266 ka IP daalo, jaise http://192.168.1.100/getUID
+        const data = await response.text();
+        if (data && data.trim() !== '' && data !== lastFetchedUID.current) {
+          lastFetchedUID.current = data; // Last UID update karo
+          setCard(data); // Search bar mein UID set karo
+          search(); // Automatic search call karo
+          console.log('UID fetched and search triggered: ' + data); // Debugging ke liye console mein dekho
+        }
+      } catch (error) {
+        console.error('UID fetch karne mein error:', error); // Browser console mein error dekho agar nahi aa raha
+      }
+    };
+
+    const interval = setInterval(fetchUID, 2000); // Har 2 second mein check karo
+    return () => clearInterval(interval);
+  }, []);
 
   const search = async () => {
     setToast({});
@@ -84,15 +106,12 @@ export default function PatientSearch() {
   const getRecords = async (tier, opts = {}) => {
     if (!patient) return;
     const force = opts && opts.force === true;
-    // Frontend security: only allow showing emergency-tier records if doctor has uploaded 3 docs in this browser session
     if (tier === 'emergency' && !emergencyUnlocked && !force) {
       setToast({ type: 'error', message: 'Upload at least 3 documents to view emergency records in this session' });
-      // ensure emergency records are hidden
       setRecords([]);
       setViewTier(null);
       return;
     }
-    // Frontend security: critical-tier should only be visible to primary doctors or after the primary approved and the doctor observed the approval in this session
     if (tier === 'critical' && !isPrimary && !criticalUnlocked && !force) {
       setToast({ type: 'error', message: 'Critical records require approval by the patient\'s primary doctor' });
       setRecords([]);
@@ -104,12 +123,10 @@ export default function PatientSearch() {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await r.json();
-      // Debug: surface server responses for troubleshooting approval flows
       console.debug('[PatientSearch] GET records', { tier, status: r.status, body: data });
       if (r.ok) {
         setRecords(data.records || []);
         setViewTier(tier);
-        // If we successfully retrieved critical records as a non-primary, mark ephemeral unlock so they remain visible until navigation/refresh
         if (tier === 'critical' && !isPrimary) {
           if (Array.isArray(data.records) && data.records.length > 0) setCriticalUnlocked(true);
         }
@@ -140,12 +157,9 @@ export default function PatientSearch() {
       });
       const d = await r.json();
       if (!r.ok) return setToast({ type: 'error', message: d.message || 'Failed to request emergency access' });
-  // mark emergency as unlocked for this session only
-  setEmergencyUnlocked(true);
-  setToast({ type: 'success', message: 'Emergency access granted for 10 minutes (this session)' });
-  // fetch emergency records now that frontend allows viewing
-  // bypass ephemeral check because server already approved; avoid race with setState
-  await getRecords('emergency', { force: true });
+      setEmergencyUnlocked(true);
+      setToast({ type: 'success', message: 'Emergency access granted for 10 minutes (this session)' });
+      await getRecords('emergency', { force: true });
     } catch (e) {
       setToast({ type: 'error', message: 'Server error, please try again' });
     }
@@ -158,27 +172,21 @@ export default function PatientSearch() {
       const fd = new FormData();
       fd.append('tier', 'critical');
       critFiles.forEach((f) => fd.append('files', f));
-  const r = await fetch(`http://localhost:5000/api/auth/doctor/patient/${patient.id}/access-request`, {
+      const r = await fetch(`http://localhost:5000/api/auth/doctor/patient/${patient.id}/access-request`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
         body: fd,
       });
       const d = await r.json();
-  // Debug: show create access-request response
-  console.debug('[PatientSearch] POST create access-request', { status: r.status, body: d });
-  if (!r.ok) return setToast({ type: 'error', message: d.message || 'Failed to request critical access' });
-      // Backend now triggers n8n; no client-side webhook
-      // Inspect returned request status. If already approved, fetch records.
+      console.debug('[PatientSearch] POST create access-request', { status: r.status, body: d });
+      if (!r.ok) return setToast({ type: 'error', message: d.message || 'Failed to request critical access' });
       setToast({ type: 'success', message: 'Critical access request created — waiting for primary doctor approval' });
       const reqStatus = d?.request?.status;
-      // Cancel any previous polling interval and create a new one for this request
       const myToken = (criticalPollTokenRef.current += 1);
       if (criticalPollIntervalRef.current) {
         clearInterval(criticalPollIntervalRef.current);
         criticalPollIntervalRef.current = null;
       }
-
-      // If server already marked this request as approved (rare), fetch once and return
       if (reqStatus === 'approved') {
         const gotNow = await getRecords('critical', { force: true });
         if (gotNow) {
@@ -186,17 +194,13 @@ export default function PatientSearch() {
           return;
         }
       }
-
-      // Start interval polling every 5s; stop after 10 minutes if still pending
       const startedAt = Date.now();
       criticalPollIntervalRef.current = setInterval(async () => {
-        // Stop if another poll superseded this one
         if (criticalPollTokenRef.current !== myToken) {
           clearInterval(criticalPollIntervalRef.current);
           criticalPollIntervalRef.current = null;
           return;
         }
-        // Timeout after 10 minutes
         if (Date.now() - startedAt > 10 * 60 * 1000) {
           clearInterval(criticalPollIntervalRef.current);
           criticalPollIntervalRef.current = null;
@@ -246,7 +250,6 @@ export default function PatientSearch() {
     e.target.value = '';
   };
 
-  // Cleanup any pending critical polling on unmount
   useEffect(() => {
     return () => {
       if (criticalPollIntervalRef.current) {
@@ -285,7 +288,6 @@ export default function PatientSearch() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-teal-50 flex items-center justify-center p-6 overflow-hidden relative">
-      {/* Animated background elements */}
       <div className="absolute inset-0 overflow-hidden">
         <div className="absolute -top-40 -right-40 w-96 h-96 bg-blue-400/20 rounded-full animate-pulse"></div>
         <div className="absolute bottom-0 left-0 w-80 h-80 bg-teal-400/20 rounded-full animate-pulse animation-delay-1000"></div>
@@ -293,7 +295,6 @@ export default function PatientSearch() {
         <div className="absolute top-1/2 right-1/4 w-48 h-48 bg-teal-600/15 rounded-full animate-pulse animation-delay-1500"></div>
       </div>
 
-      {/* Floating medical icons */}
       <div ref={animationRef} className="absolute inset-0 pointer-events-none">
         <div data-animate-icon className="absolute top-20 left-16 animate-float">
           <div className="w-12 h-12 bg-blue-200/80 backdrop-blur-md rounded-2xl flex items-center justify-center shadow-xl hover:scale-110 transition-transform duration-300">
@@ -326,7 +327,6 @@ export default function PatientSearch() {
       </div>
 
       <div className="w-full max-w-5xl bg-white/95 backdrop-blur-xl rounded-3xl shadow-2xl shadow-blue-500/20 p-8 border border-blue-100/50 relative z-10">
-        {/* Header */}
         <div className="flex justify-between items-center mb-8">
           <div className="flex items-center space-x-4">
             <div className="w-12 h-12 bg-gradient-to-r from-blue-600 to-teal-500 rounded-xl flex items-center justify-center shadow-lg animate-pulse-slow">
@@ -350,7 +350,6 @@ export default function PatientSearch() {
           </button>
         </div>
 
-        {/* Search Section */}
         <div className="bg-white/80 backdrop-blur-lg rounded-2xl shadow-lg p-6 border border-blue-100/50 mb-6">
           <h2 className="text-lg font-semibold text-blue-800 mb-4 flex items-center space-x-2">
             <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -384,7 +383,6 @@ export default function PatientSearch() {
           </div>
         </div>
 
-        {/* Toast Message */}
         {toast.message && (
           <div
             className={`p-3 rounded-lg text-sm transition-all duration-300 animate-slide-in ${
@@ -395,7 +393,6 @@ export default function PatientSearch() {
           </div>
         )}
 
-        {/* Patient Details */}
         {patient && (
           <div className="bg-white/80 backdrop-blur-lg rounded-2xl shadow-lg p-6 border border-blue-100/50">
             <div className="flex items-center space-x-4 mb-6">
@@ -410,18 +407,15 @@ export default function PatientSearch() {
               </div>
             </div>
 
-            {/* Access Controls */}
             <div className="mb-8">
               <h3 className="text-lg font-semibold text-blue-800 mb-4">Access Level</h3>
               <div className="flex flex-wrap gap-4">
                 <button
                   onClick={() => {
-                    // switching away clears any ephemeral emergency unlock
                     setEmergencyUnlocked(false);
-                    // also clear any ephemeral critical unlock and cancel polling
                     setCriticalUnlocked(false);
                     criticalPollTokenRef.current += 1;
-                    setActiveTab(null); // Hide document upload section
+                    setActiveTab(null);
                     getRecords('early');
                   }}
                   className={`px-6 py-3 rounded-xl font-semibold shadow-lg transition-all duration-300 flex items-center space-x-2 ${
@@ -438,15 +432,12 @@ export default function PatientSearch() {
                 
                 <button
                   onClick={() => {
-                    // Show upload UI first. Only fetch emergency records if already unlocked this session.
-                    // switching to emergency should hide any critical records and stop polling
                     setCriticalUnlocked(false);
                     criticalPollTokenRef.current += 1;
-                    setActiveTab('emergency'); // Show emergency document upload
+                    setActiveTab('emergency');
                     if (emergencyUnlocked) {
                       getRecords('emergency');
                     } else {
-                      // Ensure no emergency records are visible until user requests and unlocks
                       setRecords([]);
                       setViewTier(null);
                     }
@@ -465,9 +456,8 @@ export default function PatientSearch() {
                 
                 <button
                   onClick={() => {
-                    // switching away clears ephemeral emergency unlock
                     setEmergencyUnlocked(false);
-                    setActiveTab('critical'); // Show critical document upload
+                    setActiveTab('critical');
                     getRecords('critical');
                   }}
                   className={`px-6 py-3 rounded-xl font-semibold shadow-lg transition-all duration-300 flex items-center space-x-2 ${
@@ -484,16 +474,12 @@ export default function PatientSearch() {
               </div>
             </div>
 
-            {/* Document Upload Section */}
             {activeTab && (
               <div className="mb-8">
                 <h3 className="text-lg font-semibold text-blue-800 mb-4">Add Documents</h3>
                 
-                {/* Emergency Documents */}
                 {activeTab === 'emergency' && (
                   <div className="bg-blue-50/50 p-4 rounded-lg">
-                    
-                    
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
                       <div className="bg-white p-4 rounded-lg shadow-sm border border-blue-100">
                         <h4 className="font-medium text-blue-800 text-sm mb-2">Provisional Patent File</h4>
@@ -594,7 +580,6 @@ export default function PatientSearch() {
                   </div>
                 )}
                 
-                {/* Critical Documents */}
                 {activeTab === 'critical' && !isPrimary && (
                   <div className="bg-red-50/50 p-4 rounded-lg">
                     <div
@@ -722,7 +707,6 @@ export default function PatientSearch() {
               </div>
             )}
 
-            {/* Records Section */}
             <div>
               <div className="flex justify-between items-center mb-4">
                 <h3 className="text-lg font-semibold text-blue-800 flex items-center space-x-2">
@@ -883,3 +867,4 @@ export default function PatientSearch() {
     </div>
   );
 }
+
