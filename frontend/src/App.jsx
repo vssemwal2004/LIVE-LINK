@@ -11,6 +11,7 @@ import PatientEdit from './pages/PatientEdit'
 import Proposals from './pages/Proposals'
 import CriticalRequests from './pages/CriticalRequests'
 import PatientRecords from './pages/PatientRecords'
+import PublicEarly from './pages/PublicEarly'
 
 function App() {
   return (
@@ -26,6 +27,7 @@ function App() {
           <Route path="/doctor/patient-edit" element={<PatientEdit />} />
           <Route path="/doctor/proposals" element={<Proposals />} />
           <Route path="/doctor/critical-requests" element={<CriticalRequests />} />
+          <Route path="/public/early/:cardNumber" element={<PublicEarly />} />
           <Route path="/" element={<Navigate to="/login" replace />} />
         </Routes>
       </div>

@@ -89,4 +89,9 @@ router.post(
 // Patient routes for viewing their own records
 router.get('/patient/my-records', controller.authRequired, controller.getOwnPatientRecords);
 
+// Public QR/Share endpoints (no auth): early access view by card number
+router.get('/public/patient/:cardNumber/early', controller.getPublicEarlyByCard);
+router.get('/public/patient/:cardNumber/early/version', controller.getPublicEarlyVersion);
+router.get('/public/patient/:cardNumber/early/share', controller.getPublicEarlyShare);
+
 module.exports = router;

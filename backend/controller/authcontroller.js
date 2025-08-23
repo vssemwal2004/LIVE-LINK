@@ -1042,6 +1042,92 @@ exports.getOwnPatientRecords = async (req, res) => {
   }
 };
 
+// Public: View early access records by patient card number (no auth)
+exports.getPublicEarlyByCard = async (req, res) => {
+  try {
+    const { cardNumber } = req.params || {};
+    if (!cardNumber) return res.status(400).json({ message: 'cardNumber is required' });
+    const patient = await User.findOne({ role: 'patient', cardNumber }).select('_id name cardNumber');
+    if (!patient) return res.status(404).json({ message: 'Patient not found' });
+
+    // Fetch all early-tier records for this patient from any doctor
+    const recs = await PatientRecord.find({ patient: patient._id, accessTier: 'early' }).sort({ createdAt: -1 });
+
+    const bucket = process.env.SUPABASE_BUCKET || 'patient-records';
+    const usePublic = (process.env.SUPABASE_PUBLIC || 'true').toLowerCase() === 'true';
+    const mapFiles = async (arr = []) => Promise.all(arr.map(async (f) => {
+      if (f.path && supabase) {
+        if (usePublic) {
+          const { data: pub } = supabase.storage.from(bucket).getPublicUrl(f.path);
+          return { name: f.name, mime: f.mime, url: pub?.publicUrl || null };
+        } else {
+          const ttl = parseInt(process.env.SUPABASE_SIGNED_TTL || '600', 10);
+          const { data } = await supabase.storage.from(bucket).createSignedUrl(f.path, ttl);
+          return { name: f.name, mime: f.mime, url: data?.signedUrl || null };
+        }
+      }
+      if (f.url) return { name: f.name, mime: f.mime, url: f.url };
+      if (f.enc) { const dec = decryptJson(f.enc); return { name: f.name, mime: f.mime, dataBase64: dec.data }; }
+      return { name: f.name, mime: f.mime };
+    }));
+
+    const result = await Promise.all(recs.map(async (r) => ({
+      id: r._id,
+      accessTier: r.accessTier,
+      createdAt: r.createdAt,
+      data: decryptJson(r.enc),
+      files: await mapFiles(r.files || []),
+      sections: await Promise.all((r.sections || []).map(async (s) => ({
+        id: s._id,
+        label: s.label,
+        createdAt: s.createdAt,
+        updatedAt: s.updatedAt,
+        data: decryptJson(s.enc),
+        files: await mapFiles(s.files || []),
+      }))),
+    })));
+
+    return res.json({ patient: { id: patient._id, name: patient.name, cardNumber: patient.cardNumber }, records: result });
+  } catch (e) {
+    console.error('getPublicEarlyByCard error', e);
+    return res.status(500).json({ message: 'Server error' });
+  }
+};
+
+// Public: Version info for early access (changes when early records change)
+exports.getPublicEarlyVersion = async (req, res) => {
+  try {
+    const { cardNumber } = req.params || {};
+    if (!cardNumber) return res.status(400).json({ message: 'cardNumber is required' });
+    const patient = await User.findOne({ role: 'patient', cardNumber }).select('_id');
+    if (!patient) return res.status(404).json({ message: 'Patient not found' });
+    const latest = await PatientRecord.findOne({ patient: patient._id, accessTier: 'early' }).sort({ updatedAt: -1, createdAt: -1 }).select('updatedAt createdAt');
+    const ts = latest ? (latest.updatedAt || latest.createdAt || new Date(0)).getTime() : 0;
+    // Simple version: epoch millis; clients can append as query param to make QR content change when data updates
+    return res.json({ version: String(ts) });
+  } catch (e) {
+    console.error('getPublicEarlyVersion error', e);
+    return res.status(500).json({ message: 'Server error' });
+  }
+};
+
+// Public: share URL helper (optional) — returns the URL clients should encode in QR
+exports.getPublicEarlyShare = async (req, res) => {
+  try {
+    const { cardNumber } = req.params || {};
+    if (!cardNumber) return res.status(400).json({ message: 'cardNumber is required' });
+    const patient = await User.findOne({ role: 'patient', cardNumber }).select('_id');
+    if (!patient) return res.status(404).json({ message: 'Patient not found' });
+    const latest = await PatientRecord.findOne({ patient: patient._id, accessTier: 'early' }).sort({ updatedAt: -1, createdAt: -1 }).select('updatedAt createdAt');
+    const ts = latest ? (latest.updatedAt || latest.createdAt || new Date(0)).getTime() : 0;
+    const url = `/public/early/${encodeURIComponent(cardNumber)}?v=${encodeURIComponent(String(ts))}`;
+    return res.json({ url });
+  } catch (e) {
+    console.error('getPublicEarlyShare error', e);
+    return res.status(500).json({ message: 'Server error' });
+  }
+};
+
 // Create or update a proposal from a doctor for a patient (one pending per doctor/patient/tier)
 exports.createEditProposal = async (req, res) => {
   try {

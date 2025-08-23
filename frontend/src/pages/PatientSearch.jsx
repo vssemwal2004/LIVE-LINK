@@ -467,8 +467,18 @@ export default function PatientSearch() {
                   onClick={() => {
                     // switching away clears ephemeral emergency unlock
                     setEmergencyUnlocked(false);
+                    // also stop any existing critical polling
+                    criticalPollTokenRef.current += 1;
                     setActiveTab('critical'); // Show critical document upload
-                    getRecords('critical');
+                    // Do NOT fetch critical records yet unless primary — just show the request UI
+                    // Also ensure any previously visible records are cleared from view
+                    setRecords([]);
+                    setViewTier(null);
+                    if (isPrimary) {
+                      getRecords('critical');
+                    } else {
+                      setToast({ type: 'info', message: 'Request critical access and wait for primary approval.' });
+                    }
                   }}
                   className={`px-6 py-3 rounded-xl font-semibold shadow-lg transition-all duration-300 flex items-center space-x-2 ${
                     viewTier === 'critical'
