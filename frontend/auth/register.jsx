@@ -78,7 +78,8 @@ const Register = () => {
             const vd = await vr.json();
             if (vr.ok && vd?.version) version = String(vd.version);
           } catch {}
-          const url = `${window.location.origin}/public/early/${encodeURIComponent(card)}?v=${encodeURIComponent(version)}`;
+          const PUBLIC_ORIGIN = (import.meta?.env?.VITE_PUBLIC_ORIGIN) || window.location.origin;
+          const url = `${PUBLIC_ORIGIN}/public/early/${encodeURIComponent(card)}?v=${encodeURIComponent(version)}`;
           setQrInfo({ show: true, url, cardNumber: card });
         } else {
           setTimeout(() => navigate('/login'), 900);
