@@ -26,7 +26,7 @@ app.get('/api/auth/me', async (req, res) => {
 	const token = auth.split(' ')[1];
 	try {
 		const payload = jwt.verify(token, process.env.JWT_SECRET || 'dev_secret');
-		let q = User.findById(payload.id).select('-passwordHash');
+		let q = User.findById(payload.id).select('-passwordHash -recordPinHash');
 		// populate related lists depending on role
 		if (payload.role === 'patient') {
 			q = q.populate('primaryDoctors', 'name email medicalId');

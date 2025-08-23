@@ -114,6 +114,8 @@ const userSchema = new mongoose.Schema({
   cardNumber: String, // present for patients
   email: { type: String, unique: true },
   passwordHash: String,
+  // 4-digit records PIN (bcrypt hash)
+  recordPinHash: String,
   role: { type: String, enum: ['patient', 'doctor'] },
   // relations
   primaryDoctors: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User', default: [] }], // for patients
@@ -138,11 +140,15 @@ try {
 const User = mongoose.models.User || mongoose.model('User', userSchema);
 
 exports.registerPatient = async (req, res) => {
-  const { name, phone, email, password } = req.body;
+  const { name, phone, email, password, recordPin } = req.body;
   if (!name || !phone || !email || !password) return res.status(400).json({ message: 'Missing fields' });
+  if (!recordPin || !/^\d{4}$/.test(String(recordPin))) {
+    return res.status(400).json({ message: 'A 4-digit records PIN is required' });
+  }
   const exists = await User.findOne({ email });
   if (exists) return res.status(400).json({ message: 'Email already registered' });
   const hash = await bcrypt.hash(password, 10);
+  const pinHash = await bcrypt.hash(String(recordPin), 10);
   // generate unique card number for patient
   let cardNumber;
   for (let i = 0; i < 7; i++) {
@@ -156,7 +162,7 @@ exports.registerPatient = async (req, res) => {
   }
   if (!cardNumber) return res.status(500).json({ message: 'Could not generate card number' });
 
-  const u = new User({ name, phone, email, passwordHash: hash, role: 'patient', cardNumber, primaryDoctors: [] });
+  const u = new User({ name, phone, email, passwordHash: hash, recordPinHash: pinHash, role: 'patient', cardNumber, primaryDoctors: [] });
   await u.save();
   return res.json({ message: 'Patient registered', user: { id: u._id, name: u.name, email: u.email, cardNumber: u.cardNumber } });
 };
@@ -979,11 +985,15 @@ const editProposalSchema = new mongoose.Schema(
 );
 const EditProposal = mongoose.models.EditProposal || mongoose.model('EditProposal', editProposalSchema);
 
-// Retrieve patient's own records
+// Retrieve patient's own records (requires 4-digit PIN via header 'x-record-pin')
 exports.getOwnPatientRecords = async (req, res) => {
   try {
     const patient = await User.findById(req.userId);
     if (!patient || patient.role !== 'patient') return res.status(403).json({ message: 'Only patients can view their own records' });
+  const pin = req.headers['x-record-pin'] || req.headers['X-Record-Pin'];
+  if (!pin || !/^\d{4}$/.test(String(pin))) return res.status(401).json({ message: 'PIN required' });
+  const ok = await bcrypt.compare(String(pin), patient.recordPinHash || '');
+  if (!ok) return res.status(403).json({ message: 'Invalid PIN' });
     
     // Get all records for this patient
     const recs = await PatientRecord.find({ patient: patient._id }).sort({ createdAt: -1 });

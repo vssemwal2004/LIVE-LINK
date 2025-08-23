@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 
 const Register = () => {
   const [role, setRole] = useState('patient');
-  const [form, setForm] = useState({ name: '', phone: '', email: '', password: '', confirmPassword: '', medicalId: '' });
+  const [form, setForm] = useState({ name: '', phone: '', email: '', password: '', confirmPassword: '', medicalId: '', recordPin: '' });
   const [toast, setToast] = useState({ type: '', message: '' });
   const [loading, setLoading] = useState(false);
   const [isAnimating, setIsAnimating] = useState(true);
@@ -46,10 +46,17 @@ const Register = () => {
       setToast({ type: 'error', message: 'Passwords do not match' });
       return;
     }
+    // Patient PIN validation
+    if (role === 'patient' && !/^\d{4}$/.test(form.recordPin)) {
+      setToast({ type: 'error', message: 'Records PIN must be exactly 4 digits' });
+      return;
+    }
     setLoading(true);
     try {
       const endpoint = role === 'patient' ? 'register/patient' : 'register/doctor';
-      const body = role === 'patient' ? { name: form.name, phone: form.phone, email: form.email, password: form.password } : { name: form.name, phone: form.phone, medicalId: form.medicalId, email: form.email, password: form.password };
+      const body = role === 'patient'
+        ? { name: form.name, phone: form.phone, email: form.email, password: form.password, recordPin: form.recordPin }
+        : { name: form.name, phone: form.phone, medicalId: form.medicalId, email: form.email, password: form.password };
       const res = await fetch(`http://localhost:5000/api/auth/${endpoint}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -199,6 +206,32 @@ const Register = () => {
                 </div>
               </div>
             </div>
+
+            {role === 'patient' && (
+              <div>
+                <label className="block text-sm font-semibold text-blue-800 mb-1">4-Digit Records PIN</label>
+                <div className="relative">
+                  <input
+                    name="recordPin"
+                    type="password"
+                    maxLength="4"
+                    pattern="[0-9]*"
+                    inputMode="numeric"
+                    value={form.recordPin}
+                    onChange={handleChange}
+                    required
+                    className="w-full px-4 py-3 rounded-lg border-2 border-blue-200 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all duration-300 text-blue-900 text-sm"
+                    placeholder="Enter 4-digit PIN"
+                  />
+                  <div className="absolute right-3 top-3 text-blue-500">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                      <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
+                    </svg>
+                  </div>
+                  <p className="text-xs text-blue-600 mt-1">This PIN will be required to access your medical records</p>
+                </div>
+              </div>
+            )}
 
             <div>
               {toast.message && (
