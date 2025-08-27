@@ -13,16 +13,16 @@ export default function PatientSearch() {
   const [viewTier, setViewTier] = useState(null); // 'early' | 'emergency' | 'critical' | null
   const [isPrimary, setIsPrimary] = useState(false);
   const [activeTab, setActiveTab] = useState(null); // null | 'emergency' | 'critical'
-  const [emergencyUnlocked, setEmergencyUnlocked] = useState(false); // ephemeral: only true after uploading 3 docs this session
-  const [criticalUnlocked, setCriticalUnlocked] = useState(false); // ephemeral: only true after primary approval is observed in this session
-  const [refreshingCritical, setRefreshingCritical] = useState(false); // spinner state for manual refresh
+  const [emergencyUnlocked, setEmergencyUnlocked] = useState(false);
+  const [criticalUnlocked, setCriticalUnlocked] = useState(false);
+  const [refreshingCritical, setRefreshingCritical] = useState(false);
   const navigate = useNavigate();
   const addFileInputRef = useRef(null);
   const animationRef = useRef(null);
   const [isAnimating, setIsAnimating] = useState(true);
   const criticalPollTokenRef = useRef(0);
   const criticalPollIntervalRef = useRef(null);
-  const lastFetchedUID = useRef(''); // Last UID track karne ke liye taaki duplicate na ho
+  const lastFetchedUID = useRef(''); // Track last fetched UID to avoid duplicates
 
   const token = localStorage.getItem('token');
 
@@ -38,7 +38,7 @@ export default function PatientSearch() {
     return String(data);
   };
 
-  // Floating icons ke liye animation
+  // Animation for floating icons
   useEffect(() => {
     if (!isAnimating) return;
 
@@ -58,26 +58,28 @@ export default function PatientSearch() {
     return () => clearInterval(interval);
   }, [isAnimating]);
 
-  // ESP8266 se UID fetch karne ka polling (har 2 second mein check)
+  // Fetch UID from backend endpoint
   useEffect(() => {
     const fetchUID = async () => {
       try {
-        const response = await fetch('http://<ESP8266_IP>/getUID'); // Yahan apna ESP8266 ka IP daalo, jaise http://192.168.1.100/getUID
-        const data = await response.text();
-        if (data && data.trim() !== '' && data !== lastFetchedUID.current) {
-          lastFetchedUID.current = data; // Last UID update karo
-          setCard(data); // Search bar mein UID set karo
-          search(); // Automatic search call karo
-          console.log('UID fetched and search triggered: ' + data); // Debugging ke liye console mein dekho
+        const response = await fetch('http://localhost:5000/api/rfid/uid', {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const data = await response.json();
+        if (response.ok && data.uid && data.uid !== lastFetchedUID.current) {
+          lastFetchedUID.current = data.uid; // Update last fetched UID
+          setCard(data.uid); // Set UID in search bar
+          search(); // Trigger search automatically
+          console.log('UID fetched from backend and search triggered:', data.uid);
         }
       } catch (error) {
-        console.error('UID fetch karne mein error:', error); // Browser console mein error dekho agar nahi aa raha
+        console.error('Error fetching UID from backend:', error);
       }
     };
 
-    const interval = setInterval(fetchUID, 2000); // Har 2 second mein check karo
+    const interval = setInterval(fetchUID, 2000); // Poll every 2 seconds
     return () => clearInterval(interval);
-  }, []);
+  }, [token]);
 
   const search = async () => {
     setToast({});
@@ -867,4 +869,3 @@ export default function PatientSearch() {
     </div>
   );
 }
-
