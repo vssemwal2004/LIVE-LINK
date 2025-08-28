@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
+import QRCode from 'qrcode';
+import { API_BASE } from '../src/apiBase';
 
 const Register = () => {
   const [role, setRole] = useState('patient');
@@ -7,6 +9,7 @@ const Register = () => {
   const [toast, setToast] = useState({ type: '', message: '' });
   const [loading, setLoading] = useState(false);
   const [isAnimating, setIsAnimating] = useState(true);
+  const [qrInfo, setQrInfo] = useState({ show: false, url: '', cardNumber: '' });
   const animationRef = useRef(null);
   const navigate = useNavigate();
 
@@ -57,7 +60,7 @@ const Register = () => {
       const body = role === 'patient'
         ? { name: form.name, phone: form.phone, email: form.email, password: form.password, recordPin: form.recordPin }
         : { name: form.name, phone: form.phone, medicalId: form.medicalId, email: form.email, password: form.password };
-      const res = await fetch(`http://localhost:5000/api/auth/${endpoint}`, {
+  const res = await fetch(`${API_BASE}/api/auth/${endpoint}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -66,7 +69,21 @@ const Register = () => {
       if (!res.ok) setToast({ type: 'error', message: data.message || 'Registration failed' });
       else {
         setToast({ type: 'success', message: data.message || 'Registered' });
-        setTimeout(() => navigate('/login'), 900);
+        if (role === 'patient') {
+          // Build QR URL with dynamic version so QR content changes when early data updates
+          const card = data?.user?.cardNumber;
+          let version = '0';
+          try {
+            const vr = await fetch(`${API_BASE}/api/auth/public/patient/${encodeURIComponent(card)}/early/version`);
+            const vd = await vr.json();
+            if (vr.ok && vd?.version) version = String(vd.version);
+          } catch {}
+          const PUBLIC_ORIGIN = (import.meta?.env?.VITE_PUBLIC_ORIGIN) || window.location.origin;
+          const url = `${PUBLIC_ORIGIN}/public/early/${encodeURIComponent(card)}?v=${encodeURIComponent(version)}`;
+          setQrInfo({ show: true, url, cardNumber: card });
+        } else {
+          setTimeout(() => navigate('/login'), 900);
+        }
       }
     } catch (err) {
       setToast({ type: 'error', message: 'Server error' });
@@ -398,8 +415,55 @@ const Register = () => {
           <p className="text-xl">For the full 3D medical card animation experience, please view on a larger screen.</p>
         </div>
       </div>
+
+      {/* QR Modal for patient registration */}
+      {qrInfo.show && (
+        <QrModal url={qrInfo.url} cardNumber={qrInfo.cardNumber} onClose={() => { setQrInfo({ show: false, url: '', cardNumber: '' }); navigate('/login'); }} />
+      )}
     </div>
   );
 };
 
 export default Register;
+
+// QR modal for showing the public early-access link as a QR image
+function QrModal({ url, cardNumber, onClose }) {
+  const [dataUrl, setDataUrl] = React.useState('');
+  React.useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const opts = { errorCorrectionLevel: 'M', width: 256, margin: 2, color: { dark: '#1e3a8a', light: '#ffffff' } };
+  const du = await QRCode.toDataURL(url, opts);
+        if (alive) setDataUrl(du);
+      } catch {}
+    })();
+    return () => { alive = false; };
+  }, [url]);
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+      <div className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-sm">
+        <h3 className="text-lg font-semibold text-blue-900 mb-1">Your Public QR</h3>
+        <p className="text-sm text-blue-700 mb-4">Scan to view early access details for card {cardNumber}.</p>
+        <div className="flex items-center justify-center mb-4">
+          {dataUrl ? (
+            <img src={dataUrl} alt="QR Code" className="w-64 h-64" />
+          ) : (
+            <div className="w-64 h-64 bg-blue-50 animate-pulse rounded" />
+          )}
+        </div>
+        <div className="bg-blue-50 text-blue-800 text-xs p-2 rounded mb-3 break-all">{url}</div>
+        <div className="flex gap-2">
+          <button
+            onClick={() => { navigator.clipboard?.writeText(url); }}
+            className="flex-1 bg-blue-600 text-white py-2 rounded-lg font-medium hover:bg-blue-700"
+          >Copy Link</button>
+          <button
+            onClick={onClose}
+            className="flex-1 bg-gray-200 text-gray-800 py-2 rounded-lg font-medium hover:bg-gray-300"
+          >Done</button>
+        </div>
+      </div>
+    </div>
+  );
+}
