@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { API_BASE } from '../apiBase';
 
 export default function CriticalRequests() {
   const [items, setItems] = useState([])
@@ -10,7 +11,7 @@ export default function CriticalRequests() {
   const load = async () => {
     setToast({})
     try{
-      const r = await fetch('http://localhost:5000/api/auth/doctor/critical-requests/pending', { headers: { Authorization: `Bearer ${token}` } })
+  const r = await fetch(`${API_BASE}/api/auth/doctor/critical-requests/pending`, { headers: { Authorization: `Bearer ${token}` } })
       const d = await r.json()
       if (!r.ok) return setToast({ type:'error', message: d.message || 'Failed to load requests' })
       setItems(d.requests || [])
@@ -33,7 +34,7 @@ export default function CriticalRequests() {
   const act = async (id, action) => {
     try{
       setToast({})
-      const r = await fetch(`http://localhost:5000/api/auth/doctor/access-request/${id}/${action}`, { method:'POST', headers: { Authorization: `Bearer ${token}` } })
+  const r = await fetch(`${API_BASE}/api/auth/doctor/access-request/${id}/${action}`, { method:'POST', headers: { Authorization: `Bearer ${token}` } })
       const d = await r.json()
       if (!r.ok) return setToast({ type:'error', message: d.message || 'Action failed' })
       await load()

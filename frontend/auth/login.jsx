@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { API_BASE } from '../src/apiBase';
 
 const Login = () => {
   const [role, setRole] = useState('patient');
@@ -40,7 +41,7 @@ const Login = () => {
     setToast({});
     setLoading(true);
     try {
-      const url = `http://localhost:5000/api/auth/login/${role}`;
+  const url = `${API_BASE}/api/auth/login/${role}`;
       const res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

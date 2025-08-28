@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { API_BASE } from '../apiBase';
 
 export default function PatientSearch() {
   const [card, setCard] = useState('');
@@ -62,7 +63,7 @@ export default function PatientSearch() {
   useEffect(() => {
     const fetchUID = async () => {
       try {
-        const response = await fetch('http://localhost:5000/api/rfid/uid', {
+  const response = await fetch(`${API_BASE}/api/rfid/uid`, {
           headers: { Authorization: `Bearer ${token}` },
         });
         const data = await response.json();
@@ -87,14 +88,14 @@ export default function PatientSearch() {
     setRecords([]);
     if (!card.trim()) return setToast({ type: 'error', message: 'Enter a valid patient card number' });
     try {
-      const r = await fetch(`http://localhost:5000/api/auth/patient/by-card/${encodeURIComponent(card)}`, {
+  const r = await fetch(`${API_BASE}/api/auth/patient/by-card/${encodeURIComponent(card)}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       const d = await r.json();
       if (!r.ok) return setToast({ type: 'error', message: d.message || 'Patient not found' });
       setPatient(d.patient);
       try {
-        const meR = await fetch('http://localhost:5000/api/auth/me', { headers: { Authorization: `Bearer ${token}` } });
+  const meR = await fetch(`${API_BASE}/api/auth/me`, { headers: { Authorization: `Bearer ${token}` } });
         const meD = await meR.json();
         const primaries = (meD?.user?.primaryPatients || []);
         setIsPrimary(Array.isArray(primaries) && primaries.some(pp => pp._id === d.patient.id));
@@ -121,7 +122,7 @@ export default function PatientSearch() {
       return;
     }
     try {
-      const r = await fetch(`http://localhost:5000/api/auth/doctor/patient/${patient.id}/records?tier=${tier}`, {
+  const r = await fetch(`${API_BASE}/api/auth/doctor/patient/${patient.id}/records?tier=${tier}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await r.json();
@@ -152,7 +153,7 @@ export default function PatientSearch() {
       const fd = new FormData();
       fd.append('tier', 'emergency');
       files.forEach((f) => fd.append('files', f));
-      const r = await fetch(`http://localhost:5000/api/auth/doctor/patient/${patient.id}/access-request`, {
+  const r = await fetch(`${API_BASE}/api/auth/doctor/patient/${patient.id}/access-request`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
         body: fd,
@@ -174,7 +175,7 @@ export default function PatientSearch() {
       const fd = new FormData();
       fd.append('tier', 'critical');
       critFiles.forEach((f) => fd.append('files', f));
-      const r = await fetch(`http://localhost:5000/api/auth/doctor/patient/${patient.id}/access-request`, {
+  const r = await fetch(`${API_BASE}/api/auth/doctor/patient/${patient.id}/access-request`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
         body: fd,

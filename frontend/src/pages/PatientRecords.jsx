@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { API_BASE } from '../apiBase';
 
 export default function PatientRecords() {
   const [user, setUser] = useState(null);
@@ -17,7 +18,7 @@ export default function PatientRecords() {
   const loadMe = async () => {
     if (!token) return navigate('/login');
     try {
-      const r = await fetch('http://localhost:5000/api/auth/me', {
+  const r = await fetch(`${API_BASE}/api/auth/me`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       const d = await r.json();
@@ -39,7 +40,7 @@ export default function PatientRecords() {
       if (!/^\d{4}$/.test(pin)) {
         throw new Error('Enter your 4-digit records PIN');
       }
-      const r = await fetch('http://localhost:5000/api/auth/patient/my-records', {
+  const r = await fetch(`${API_BASE}/api/auth/patient/my-records`, {
         headers: { Authorization: `Bearer ${token}`, 'x-record-pin': pin },
       });
       const d = await r.json();

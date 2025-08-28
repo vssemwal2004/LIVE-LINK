@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
+import { API_BASE } from '../apiBase';
 import { useNavigate } from 'react-router-dom';
 
 export default function Patient() {
@@ -16,7 +17,7 @@ export default function Patient() {
   const loadMe = async () => {
     if (!token) return navigate('/login');
     try {
-      const r = await fetch('http://localhost:5000/api/auth/me', {
+  const r = await fetch(`${API_BASE}/api/auth/me`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       const d = await r.json();
@@ -65,7 +66,7 @@ export default function Patient() {
     if (!medicalId.trim()) return setToast({ type: 'error', message: 'Enter a valid medical ID' });
     setLoading(true);
     try {
-      const r = await fetch(`http://localhost:5000/api/auth/doctor/by-medical/${encodeURIComponent(medicalId.trim())}`, {
+  const r = await fetch(`${API_BASE}/api/auth/doctor/by-medical/${encodeURIComponent(medicalId.trim())}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       const d = await r.json();
@@ -83,7 +84,7 @@ export default function Patient() {
     setLoading(true);
     setToast({});
     try {
-      const r = await fetch('http://localhost:5000/api/auth/patient/add-primary-doctor', {
+  const r = await fetch(`${API_BASE}/api/auth/patient/add-primary-doctor`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ medicalId: searchResult.medicalId }),
@@ -106,7 +107,7 @@ export default function Patient() {
     setLoading(true);
     setToast({});
     try {
-      const r = await fetch(`http://localhost:5000/api/auth/patient/primary-doctor/${encodeURIComponent(medicalId)}`, {
+  const r = await fetch(`${API_BASE}/api/auth/patient/primary-doctor/${encodeURIComponent(medicalId)}`, {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${token}` },
       });

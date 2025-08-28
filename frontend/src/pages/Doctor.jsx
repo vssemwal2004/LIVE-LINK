@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { API_BASE } from '../apiBase';
 
 export default function Doctor() {
   const [user, setUser] = useState(null);
@@ -36,7 +37,7 @@ export default function Doctor() {
   useEffect(() => {
     const token = localStorage.getItem('token');
     if (!token) return navigate('/login');
-    fetch('http://localhost:5000/api/auth/me', { headers: { Authorization: `Bearer ${token}` } })
+  fetch(`${API_BASE}/api/auth/me`, { headers: { Authorization: `Bearer ${token}` } })
       .then((r) => r.json())
       .then((d) => {
         if (d.user?.role !== 'doctor') return navigate('/patient');
@@ -75,7 +76,7 @@ export default function Doctor() {
     setSelectedPatient(p);
     try {
       const token = localStorage.getItem('token');
-      const r = await fetch(`http://localhost:5000/api/auth/doctor/patient/${p._id}/record/${tier}`, {
+  const r = await fetch(`${API_BASE}/api/auth/doctor/patient/${p._id}/record/${tier}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       const d = await r.json();
@@ -109,7 +110,7 @@ export default function Doctor() {
       Object.entries(form).forEach(([k, v]) => fd.append(k, v ?? ''));
       files.forEach((f) => fd.append('files', f));
       const token = localStorage.getItem('token');
-      const r = await fetch(`http://localhost:5000/api/auth/doctor/patient/${selectedPatient._id}/records/${tier}`, {
+  const r = await fetch(`${API_BASE}/api/auth/doctor/patient/${selectedPatient._id}/records/${tier}`, {
         method: 'PUT',
         headers: { Authorization: `Bearer ${token}` },
         body: fd,
@@ -130,7 +131,7 @@ export default function Doctor() {
       fd.append('data', section.data);
       files.forEach((f) => fd.append('files', f));
       const token = localStorage.getItem('token');
-      const r = await fetch(`http://localhost:5000/api/auth/doctor/patient/${selectedPatient._id}/records/${tier}/sections`, {
+  const r = await fetch(`${API_BASE}/api/auth/doctor/patient/${selectedPatient._id}/records/${tier}/sections`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
         body: fd,
@@ -140,7 +141,7 @@ export default function Doctor() {
       setToast({ type: 'success', message: 'Section added successfully' });
       setSection({ label: '', data: '' });
       setFiles([]);
-      const rr = await fetch(`http://localhost:5000/api/auth/doctor/patient/${selectedPatient._id}/record/${tier}`, {
+  const rr = await fetch(`${API_BASE}/api/auth/doctor/patient/${selectedPatient._id}/record/${tier}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       const dd = await rr.json();
@@ -171,7 +172,7 @@ export default function Doctor() {
       (edit.files || []).forEach((f) => fd.append('files', f));
       const token = localStorage.getItem('token');
       const r = await fetch(
-        `http://localhost:5000/api/auth/doctor/patient/${selectedPatient._id}/records/${tier}/sections/${sectionId}`,
+        `${API_BASE}/api/auth/doctor/patient/${selectedPatient._id}/records/${tier}/sections/${sectionId}`,
         {
           method: 'PUT',
           headers: { Authorization: `Bearer ${token}` },
@@ -180,7 +181,7 @@ export default function Doctor() {
       );
       const d = await r.json();
       if (!r.ok) return setToast({ type: 'error', message: d.message || 'Failed to update section' });
-      const rr = await fetch(`http://localhost:5000/api/auth/doctor/patient/${selectedPatient._id}/record/${tier}`, {
+  const rr = await fetch(`${API_BASE}/api/auth/doctor/patient/${selectedPatient._id}/record/${tier}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       const dd = await rr.json();
@@ -395,7 +396,7 @@ export default function Doctor() {
                     setTier(t);
                     try {
                       const token = localStorage.getItem('token');
-                      const r = await fetch(`http://localhost:5000/api/auth/doctor/patient/${selectedPatient._id}/record/${t}`, {
+                      const r = await fetch(`${API_BASE}/api/auth/doctor/patient/${selectedPatient._id}/record/${t}`, {
                         headers: { Authorization: `Bearer ${token}` },
                       });
                       const d = await r.json();
